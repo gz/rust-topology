@@ -19,6 +19,8 @@ extern crate core;
 #[macro_use]
 extern crate lazy_static;
 
+mod acpi;
+
 use alloc::vec::Vec;
 use core::fmt;
 
@@ -35,7 +37,7 @@ impl PowersOf2 for u8 {
     }
 }
 
-use acpica_sys::{
+use acpi::{
     process_madt, process_msct, process_srat, IoApic, LocalApic, LocalX2Apic,
     MaximumProximityDomainInfo, MemoryAffinity,
 };
