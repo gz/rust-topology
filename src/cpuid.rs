@@ -14,6 +14,18 @@ impl PowersOf2 for u8 {
     }
 }
 
+fn cpuid_bits_needed(count: u8) -> u8 {
+    let mut mask: u8 = 0x80;
+    let mut cnt: u8 = 8;
+
+    while (cnt > 0) && ((mask & count) != mask) {
+        mask >>= 1;
+        cnt -= 1;
+    }
+
+    cnt
+}
+
 /// Given APIC ID, figure out package, core and thread ID.
 pub fn get_topology_from_apic_id(xapic_id: u8) -> (ThreadId, CoreId, PackageId) {
     let cpuid = x86::cpuid::CpuId::new();
@@ -24,26 +36,25 @@ pub fn get_topology_from_apic_id(xapic_id: u8) -> (ThreadId, CoreId, PackageId) 
         .map_or_else(|| 0, |finfo| finfo.max_logical_processor_ids());
 
     // Determine max cores per package
-    let mut smt_max_cores_for_package: u8 = 0;
-    cpuid.get_cache_parameters().map_or_else(
-        || (/* Out of luck */),
+    let smt_max_cores_for_package: u8 = cpuid.get_cache_parameters().map_or_else(
+        || 0,
         |cparams| {
             for (ecx, cache) in cparams.enumerate() {
                 if ecx == 0 {
-                    smt_max_cores_for_package = cache.max_cores_for_package() as u8;
+                    return cache.max_cores_for_package() as u8;
                 }
             }
+            0
         },
     );
 
-    let smt_mask_width: u8 =
-        u8::log2(max_logical_processor_ids.next_power_of_two() / (smt_max_cores_for_package));
+    let smt_mask_width: u8 = cpuid_bits_needed(
+        (max_logical_processor_ids.next_power_of_two() / smt_max_cores_for_package) - 1,
+    );
     let smt_select_mask: u8 = !(u8::max_value() << smt_mask_width);
-
-    let core_mask_width: u8 = u8::log2(smt_max_cores_for_package);
+    let core_mask_width: u8 = cpuid_bits_needed(smt_max_cores_for_package - 1);
     let core_only_select_mask =
         (!(u8::max_value() << (core_mask_width + smt_mask_width))) ^ smt_select_mask;
-
     let pkg_select_mask = u8::max_value() << (core_mask_width + smt_mask_width);
 
     let smt_id = xapic_id & smt_select_mask;

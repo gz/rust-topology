@@ -193,6 +193,7 @@ pub struct MaximumProximityDomainInfo {
     max_address: u64,
 }
 
+#[allow(unused)]
 fn acpi_get_integer(handle: ACPI_HANDLE, name: *const i8, reg: &mut ACPI_INTEGER) -> ACPI_STATUS {
     unsafe {
         let mut object: ACPI_OBJECT = mem::zeroed();
@@ -216,6 +217,7 @@ fn acpi_get_integer(handle: ACPI_HANDLE, name: *const i8, reg: &mut ACPI_INTEGER
     }
 }
 
+#[allow(unused)]
 pub fn process_pcie() {
     unsafe {
         let pcie_exp = CStr::from_bytes_with_nul_unchecked(b"PNP0A03\0");
@@ -317,7 +319,7 @@ pub fn process_srat() -> (
 
                 match entry_type {
                     Enum_AcpiSratType::ACPI_SRAT_TYPE_CPU_AFFINITY => {
-                        let ACPI_SRAT_ENABLED = 0x1;
+                        const ACPI_SRAT_ENABLED: u32 = 0x1;
 
                         let local_apic_affinity: *const ACPI_SRAT_CPU_AFFINITY =
                             entry as *const ACPI_SRAT_CPU_AFFINITY;
@@ -347,9 +349,9 @@ pub fn process_srat() -> (
                         debug_assert_eq!((*entry).Length, 16);
                     }
                     Enum_AcpiSratType::ACPI_SRAT_TYPE_MEMORY_AFFINITY => {
-                        let ACPI_SRAT_ENABLED = 0x1;
-                        let ACPI_SRAT_HOTPLUGGABLE = 0x1 << 1;
-                        let ACPI_SRAT_NON_VOLATILE = 0x1 << 2;
+                        const ACPI_SRAT_ENABLED: u32 = 0x1;
+                        const ACPI_SRAT_HOTPLUGGABLE: u32 = 0x1 << 1;
+                        const ACPI_SRAT_NON_VOLATILE: u32 = 0x1 << 2;
 
                         let mem_affinity_entry: *const ACPI_SRAT_MEM_AFFINITY =
                             entry as *const ACPI_SRAT_MEM_AFFINITY;
@@ -379,7 +381,7 @@ pub fn process_srat() -> (
                         debug_assert_eq!((*entry).Length, 40);
                     }
                     Enum_AcpiSratType::ACPI_SRAT_TYPE_X2APIC_CPU_AFFINITY => {
-                        let ACPI_SRAT_ENABLED = 0x1;
+                        const ACPI_SRAT_ENABLED: u32 = 0x1;
 
                         let x2apic_affinity_entry: *const ACPI_SRAT_X2APIC_CPU_AFFINITY =
                             entry as *const ACPI_SRAT_X2APIC_CPU_AFFINITY;
@@ -459,9 +461,10 @@ pub fn process_madt() -> (Vec<LocalApic>, Vec<LocalX2Apic>, Vec<IoApic>) {
             let entry: *const ACPI_SUBTABLE_HEADER = iterator as *const ACPI_SUBTABLE_HEADER;
             let entry_type: Enum_AcpiMadtType = mem::transmute((*entry).Type as i32);
 
+            const ACPI_MADT_ENABLED: u32 = 0x1;
+
             match entry_type {
                 Enum_AcpiMadtType::ACPI_MADT_TYPE_LOCAL_APIC => {
-                    let ACPI_MADT_ENABLED = 0x1;
                     let local_apic: *const ACPI_MADT_LOCAL_APIC =
                         entry as *const ACPI_MADT_LOCAL_APIC;
 
@@ -480,7 +483,6 @@ pub fn process_madt() -> (Vec<LocalApic>, Vec<LocalX2Apic>, Vec<IoApic>) {
                     }
                 }
                 Enum_AcpiMadtType::ACPI_MADT_TYPE_LOCAL_X2APIC => {
-                    let ACPI_MADT_ENABLED = 0x1;
                     let local_x2apic: *const ACPI_MADT_LOCAL_X2APIC =
                         entry as *const ACPI_MADT_LOCAL_X2APIC;
 

@@ -29,17 +29,6 @@ use core::fmt;
 
 use log::info;
 
-/// Silly helper trait for computing power of two
-trait PowersOf2 {
-    fn log2(self) -> u8;
-}
-
-impl PowersOf2 for u8 {
-    fn log2(self) -> u8 {
-        7 - self.leading_zeros() as u8
-    }
-}
-
 use acpi::{
     process_madt, process_msct, process_srat, IoApic, LocalApic, LocalX2Apic,
     MaximumProximityDomainInfo, MemoryAffinity,
@@ -366,10 +355,11 @@ lazy_static! {
         local_apics.sort_by(|a, b| a.apic_id.cmp(&b.apic_id));
         local_x2apics.sort_by(|a, b| a.apic_id.cmp(&b.apic_id));
 
-        core_affinity.sort_by(|a, b| a.apic_id.cmp(&b.apic_id));
-        x2apic_affinity.sort_by(|a, b| a.x2apic_id.cmp(&b.x2apic_id));
+        // These to are sorted in decending order since we pop from the stack:
+        core_affinity.sort_by(|a, b| b.apic_id.cmp(&a.apic_id));
+        x2apic_affinity.sort_by(|a, b| b.x2apic_id.cmp(&a.x2apic_id));
 
-        assert!(local_apics.len() == core_affinity.len() || core_affinity.len() == 0,
+        assert!(local_apics.len() == core_affinity.len() || core_affinity.is_empty(),
             "Either we have matching entries for core in affinity table or no affinity information at all.");
 
         // Make Thread objects out of APIC MADT entries:
@@ -379,20 +369,25 @@ lazy_static! {
         // Add all local APIC entries
         for local_apic in local_apics {
             let affinity = core_affinity.pop();
-            affinity.as_ref().map(|a| assert_eq!(a.apic_id, local_apic.apic_id, "The core_affinity and local_apic are not in the same order?"));
+            if let Some(affinity_entry) = affinity.as_ref() {
+               assert_eq!(affinity_entry.apic_id, local_apic.apic_id, "The core_affinity and local_apic are not in the same order?")
+            }
+
             let t = Thread::new_with_apic(global_thread_id, local_apic, affinity.map(|a| a.proximity_domain as u64));
             info!("Found {:?}", t);
             threads.push(t);
-            global_thread_id = global_thread_id + 1;
+            global_thread_id += 1;
         }
 
         // Add all x2APIC entries
         for local_x2apic in local_x2apics {
             let affinity = x2apic_affinity.pop();
-            affinity.as_ref().map(|a| assert_eq!(a.x2apic_id, local_x2apic.apic_id, "The x2apic_affinity and local_x2apic are not in the same order?"));
+            if let Some(affinity_entry) = affinity.as_ref() {
+                assert_eq!(affinity_entry.x2apic_id, local_x2apic.apic_id, "The x2apic_affinity and local_x2apic are not in the same order?");
+            }
             let t = Thread::new_with_x2apic(global_thread_id, local_x2apic, affinity.map(|a| a.proximity_domain as u64));
             info!("Found {:?}", t);
-            global_thread_id = global_thread_id + 1;
+            global_thread_id += 1;
         }
 
         // Next, we can construct the cores, packages, and nodes from threads
