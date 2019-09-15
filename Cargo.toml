@@ -1,6 +1,6 @@
 [package]
 name = "topology"
-version = "0.0.1"
+version = "0.0.2"
 authors = ["Gerd Zellweger <mail@gerdzellweger.com>"]
 edition = "2018"
 
@@ -12,7 +12,7 @@ keywords = ["os", "hwloc", "hwinfo", "topology", "x86-64"]
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-x86 = "0.21"
+x86 = "0.23"
 log = "0.4"
 lazy_static = { version = "1.3", features = ["spin_no_std"] }
 acpica-sys = { git = "https://github.com/gz/acpica-sys.git" }

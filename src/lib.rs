@@ -29,6 +29,8 @@ use core::fmt;
 
 use log::info;
 
+use x86::apic::ApicId;
+
 use acpi::{
     process_madt, process_msct, process_srat, IoApic, LocalApic, LocalX2Apic,
     MaximumProximityDomainInfo, MemoryAffinity,
@@ -49,12 +51,6 @@ pub type PackageId = u64;
 /// Affinity region, a NUMA node (consists of a bunch of threads/core/packages and memory regions).
 pub type NodeId = u64;
 
-/// Identifies a thread by its x2APIC ID (unique in the system).
-pub type X2ApicId = u32;
-
-/// Identifies a thread by its APIC ID (unique in the system).
-pub type ApicId = u8;
-
 /// Differentiate between local APICs and X2APICs.
 #[derive(Eq, PartialEq, Debug, Ord, PartialOrd)]
 enum ApicThreadInfo {
@@ -63,16 +59,16 @@ enum ApicThreadInfo {
 }
 
 impl ApicThreadInfo {
-    fn id(&self) -> u32 {
+    fn id(&self) -> ApicId {
         match &self {
-            ApicThreadInfo::Apic(apic) => apic.apic_id.into(),
-            ApicThreadInfo::X2Apic(x2apic) => x2apic.apic_id,
+            ApicThreadInfo::Apic(apic) => ApicId::XApic(apic.apic_id),
+            ApicThreadInfo::X2Apic(x2apic) => ApicId::X2Apic(x2apic.apic_id),
         }
     }
 }
 
 /// Represents an SMT thread in the system.
-#[derive(Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Ord, PartialOrd)]
 pub struct Thread {
     /// ID the thread, global within a system.
     pub id: GlobalThreadId,
@@ -87,6 +83,14 @@ pub struct Thread {
     /// Thread is represented either by a LocalApic or LocalX2Apic entry.
     apic: ApicThreadInfo,
 }
+
+impl PartialEq for Thread {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Eq for Thread {}
 
 impl fmt::Debug for Thread {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -113,10 +117,10 @@ impl Thread {
         Thread {
             id: global_id,
             apic: ApicThreadInfo::Apic(apic),
-            thread_id: thread_id,
-            core_id: core_id,
-            package_id: package_id,
-            node_id: node_id,
+            thread_id,
+            core_id,
+            package_id,
+            node_id,
         }
     }
 
@@ -131,42 +135,33 @@ impl Thread {
         Thread {
             id: global_id,
             apic: ApicThreadInfo::X2Apic(apic),
-            thread_id: thread_id,
-            core_id: core_id,
-            package_id: package_id,
-            node_id: node_id,
+            thread_id,
+            core_id,
+            package_id,
+            node_id,
         }
     }
 
-    /// APIC ID (unique in the system)
-    pub fn apic_id(&self) -> Option<ApicId> {
-        match &self.apic {
-            ApicThreadInfo::Apic(apic) => Some(apic.apic_id),
-            _ => None,
-        }
-    }
-
-    /// x2APIC ID (unique in the system)
-    pub fn x2apic_id(&self) -> Option<X2ApicId> {
-        match &self.apic {
-            ApicThreadInfo::X2Apic(x2apic) => Some(x2apic.apic_id),
-            _ => None,
-        }
+    /// APIC ID (unique in the system).
+    pub fn apic_id(&self) -> ApicId {
+        self.apic.id()
     }
 
     /// All neighboring threads (on the same core)
     pub fn siblings(&'static self) -> impl Iterator<Item = &'static Thread> {
         MACHINE_TOPOLOGY
             .threads()
+            // Find all threads of our parent core
             .filter(move |t| t.package_id == self.package_id && t.core_id == self.core_id)
+            // Exclude self
+            .filter(move |t| t != &self)
     }
 
     /// Return the `Core` this thread belongs to.
     pub fn core(&'static self) -> &'static Core {
         MACHINE_TOPOLOGY
             .cores()
-            .filter(move |core| core.package_id == self.package_id && core.id == self.core_id)
-            .next()
+            .find(move |core| core.package_id == self.package_id && core.id == self.core_id)
             .unwrap()
     }
 
@@ -174,19 +169,14 @@ impl Thread {
     pub fn package(&'static self) -> &'static Package {
         MACHINE_TOPOLOGY
             .packages()
-            .filter(move |package| package.id == self.package_id)
-            .next()
+            .find(move |package| package.id == self.package_id)
             .unwrap()
     }
 
     /// Return the NUMA node this thread belongs to.
     pub fn node(&'static self) -> Option<&'static Node> {
-        self.node_id.and_then(|nid| {
-            MACHINE_TOPOLOGY
-                .nodes()
-                .filter(move |node| node.id == nid)
-                .next()
-        })
+        self.node_id
+            .and_then(|nid| MACHINE_TOPOLOGY.nodes().find(move |node| node.id == nid))
     }
 }
 
@@ -218,7 +208,10 @@ impl Core {
     pub fn siblings(&'static self) -> impl Iterator<Item = &'static Core> {
         MACHINE_TOPOLOGY
             .cores()
+            // Find all cores on parent package
             .filter(move |c| c.package_id == self.package_id)
+            // Exclude self
+            .filter(move |c| c != &self)
     }
 
     /// All threads of the core.
@@ -232,19 +225,14 @@ impl Core {
     pub fn package(&'static self) -> &'static Package {
         MACHINE_TOPOLOGY
             .packages()
-            .filter(move |package| package.id == self.package_id)
-            .next()
+            .find(move |package| package.id == self.package_id)
             .unwrap()
     }
 
     /// Return the NUMA node this core belongs to.
     pub fn node(&'static self) -> Option<&'static Node> {
-        self.node_id.and_then(|nid| {
-            MACHINE_TOPOLOGY
-                .nodes()
-                .filter(move |node| node.id == nid)
-                .next()
-        })
+        self.node_id
+            .and_then(|nid| MACHINE_TOPOLOGY.nodes().find(move |node| node.id == nid))
     }
 }
 
@@ -263,8 +251,11 @@ impl Package {
     }
 
     /// All packages of the machine.
-    pub fn siblings(&self) -> impl Iterator<Item = &'static Package> {
-        MACHINE_TOPOLOGY.packages()
+    pub fn siblings(&'static self) -> impl Iterator<Item = &'static Package> {
+        MACHINE_TOPOLOGY
+            .packages()
+            // Exclude self
+            .filter(move |p| p != &self)
     }
 
     /// All threads of the package.
@@ -283,12 +274,8 @@ impl Package {
 
     /// Return the NUMA node this core belongs to.
     pub fn node(&'static self) -> Option<&'static Node> {
-        self.node_id.and_then(|nid| {
-            MACHINE_TOPOLOGY
-                .nodes()
-                .filter(move |node| node.id == nid)
-                .next()
-        })
+        self.node_id
+            .and_then(|nid| MACHINE_TOPOLOGY.nodes().find(move |node| node.id == nid))
     }
 }
 
