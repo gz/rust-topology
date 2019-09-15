@@ -442,6 +442,57 @@ impl MachineInfo {
         }
     }
 
+    fn determine_apic_id_with_cpuid() -> x86::apic::ApicId {
+        let cpuid = x86::cpuid::CpuId::new();
+        let xapic_id: Option<u8> = cpuid
+            .get_feature_info()
+            .as_ref()
+            .map(|finfo| finfo.initial_local_apic_id());
+
+        let x2apic_id: Option<u32> = cpuid
+            .get_extended_topology_info()
+            .and_then(|mut topiter| topiter.next().as_ref().map(|t| t.x2apic_id()));
+
+        match (x2apic_id, xapic_id) {
+            (None, None) => {
+                unreachable!("Can't determine APIC ID, bad. (Maybe try fallback on APIC_BASE_MSR")
+            }
+            (Some(x2id), None) => ApicId::X2Apic(x2id),
+            (None, Some(xid)) => ApicId::XApic(xid),
+            (Some(x2id), Some(xid)) => {
+                // 10.12.8.1 Consistency of APIC IDs and CPUID: "Initial APIC ID (CPUID.01H:EBX[31:24]) is always equal to CPUID.0BH:EDX[7:0]."
+                debug_assert!(
+                    (x2id & 0xff) == xid.into(),
+                    "xAPIC ID is first byte of X2APIC ID"
+                );
+                if (xid as u32) == x2id {
+                    ApicId::XApic(xid)
+                } else {
+                    ApicId::X2Apic(x2id)
+                }
+            }
+        }
+    }
+
+    /// Returns the current thread we're running on.
+    ///
+    /// # Notes
+    /// Uses cpuid to determine the current APIC ID,
+    /// then uses the id to find the corresponding thread.
+    ///
+    /// This is not an incredibly fast function since cpuid will clobber
+    /// your registers unnecessarily. Ideally, call this once then cache.
+    ///
+    /// You also need to ensure that execution is not migrated to
+    /// another core during execution of `current_thread`.
+    pub fn current_thread(&'static self) -> &'static Thread {
+        let apic_id = MachineInfo::determine_apic_id_with_cpuid();
+
+        self.threads()
+            .find(move |t| t.apic_id() == apic_id)
+            .unwrap()
+    }
+
     /// Return the amount of threads in the system.
     pub fn num_threads(&self) -> usize {
         self.threads.len()
