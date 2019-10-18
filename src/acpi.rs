@@ -73,7 +73,7 @@ pub struct LocalApicAffinity {
 /// - Information about whether the range of memory can be hot-plugged.
 #[derive(Eq, PartialEq)]
 pub struct MemoryAffinity {
-    /// Proximity domain to wich the processor belongs.
+    /// Proximity domain to which the processor belongs.
     pub proximity_domain: u32,
     /// Base Address of the memory range.
     pub base_address: u64,
@@ -88,12 +88,55 @@ pub struct MemoryAffinity {
 }
 
 impl MemoryAffinity {
-    fn start(&self) -> u64 {
+    /// Start of the affinity region
+    pub fn start(&self) -> u64 {
         self.base_address
     }
 
-    fn end(&self) -> u64 {
+    /// End of the affinity region
+    pub fn end(&self) -> u64 {
         self.base_address + self.length
+    }
+
+    /// Splits a provided memory range into three sub-ranges (a, b, c).
+    /// where
+    ///  - a is the sub-range of input that comes before this MemoryAffinity.
+    ///  - b is the sub-range of input that fits within this MemoryAffinity.
+    ///  - c is the sub-range of input that comes after this MemoryAffinity.
+    ///
+    /// At any point two of (a, b, c) may return (0, 0) is there is no overlap.
+    pub fn contains(&self, start: u64, end: u64) -> ((u64, u64), (u64, u64), (u64, u64)) {
+        debug_assert!(start <= end);
+
+        let below_range = if start < self.start() {
+            (start, self.start())
+        } else {
+            (0, 0)
+        };
+
+        let in_range = if start <= self.start() && end >= self.end() {
+            // Contains the self
+            (self.start(), self.end())
+        } else if end < self.end() && start > self.start() {
+            // Range fully contained within self
+            (start, end)
+        } else if end > self.start() && end < self.end() {
+            // Contains beginning of self
+            (self.start(), end)
+        } else if start > self.start() && start < self.end() {
+            // Contains end of self
+            (start, self.end())
+        } else {
+            (0, 0)
+        };
+
+        let above_range = if end > self.end() {
+            (self.end(), end)
+        } else {
+            (0, 0)
+        };
+
+        (below_range, in_range, above_range)
     }
 }
 
