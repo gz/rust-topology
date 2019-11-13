@@ -11,7 +11,6 @@
 //! Intel Topology is a pretty complicated subject (unfortunately), relevant documentation is here:
 //! * https://software.intel.com/en-us/articles/intel-64-architecture-processor-topology-enumeration/
 //! * https://acpica.org/documentation
-//!
 #![no_std]
 
 extern crate alloc;
@@ -27,7 +26,7 @@ mod cpuid;
 use alloc::vec::Vec;
 use core::fmt;
 
-use log::info;
+use log::debug;
 
 use x86::apic::ApicId;
 
@@ -361,7 +360,7 @@ lazy_static! {
             }
 
             let t = Thread::new_with_apic(global_thread_id, local_apic, affinity.map(|a| a.proximity_domain as u64));
-            info!("Found {:?}", t);
+            debug!("Found {:?}", t);
             threads.push(t);
             global_thread_id += 1;
         }
@@ -373,7 +372,7 @@ lazy_static! {
                 assert_eq!(affinity_entry.x2apic_id, local_x2apic.apic_id, "The x2apic_affinity and local_x2apic are not in the same order?");
             }
             let t = Thread::new_with_x2apic(global_thread_id, local_x2apic, affinity.map(|a| a.proximity_domain as u64));
-            info!("Found {:?}", t);
+            debug!("Found {:?}", t);
             global_thread_id += 1;
         }
 
