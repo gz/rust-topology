@@ -203,7 +203,7 @@ impl Core {
         }
     }
 
-    /// All neighboring cores (on the same package)
+    /// All neighboring cores (on the same core)
     pub fn siblings(&'static self) -> impl Iterator<Item = &'static Core> {
         MACHINE_TOPOLOGY
             .cores()
