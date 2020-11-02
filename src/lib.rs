@@ -373,6 +373,7 @@ lazy_static! {
             }
             let t = Thread::new_with_x2apic(global_thread_id, local_x2apic, affinity.map(|a| a.proximity_domain as u64));
             debug!("Found {:?}", t);
+            threads.push(t);
             global_thread_id += 1;
         }
 
