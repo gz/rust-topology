@@ -411,7 +411,8 @@ lazy_static! {
 /// Contains a condensed and filtered version of all data queried from ACPI and CPUID.
 #[derive(Debug)]
 pub struct MachineInfo {
-    threads: Vec<Thread>,
+    /// All hardware threads in the system, indexed by GlobalThreadId.
+    pub threads: Vec<Thread>,
     cores: Vec<Core>,
     packages: Vec<Package>,
     nodes: Vec<Node>,
