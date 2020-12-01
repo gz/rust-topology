@@ -448,7 +448,7 @@ pub fn process_srat() -> (
 
                         debug_assert_eq!((*entry).Length, 24);
                     }
-                    _ => warn!("Unhandled SRAT entry {:?}", entry_type),
+                    _ => trace!("Unhandled SRAT entry"),
                 }
 
                 assert!((*entry).Length > 0);
@@ -554,7 +554,7 @@ pub fn process_madt() -> (Vec<LocalApic>, Vec<LocalX2Apic>, Vec<IoApic>) {
                     trace!("MADT Entry: {:?}", apic);
                     io_apics.push(apic);
                 }
-                _ => warn!("Unhandled entry..."),
+                _ => trace!("Unhandled MADT entry"),
             }
 
             assert!((*entry).Length > 0, "Length is 0?");
