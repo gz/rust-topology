@@ -26,12 +26,12 @@ mod cpuid;
 use alloc::vec::Vec;
 use core::fmt;
 
-use log::debug;
+use log::{error, debug};
 
 use x86::apic::ApicId;
 
 use acpi::{
-    process_madt, process_msct, process_srat, IoApic, LocalApic, LocalX2Apic,
+    process_madt, process_srat, IoApic, LocalApic, LocalX2Apic,
     MaximumProximityDomainInfo, MemoryAffinity,
 };
 
@@ -336,7 +336,8 @@ lazy_static! {
         // Let's get all the APIC information and transform it into a MachineInfo struct
         let (mut local_apics, mut local_x2apics, ioapics) = process_madt();
         let (mut core_affinity, mut x2apic_affinity, memory_affinity) = process_srat();
-        let max_proximity_info = process_msct();
+        let max_proximity_info = Vec::default();
+        error!("reintroduce process_msct()");
 
         local_apics.sort_by(|a, b| a.apic_id.cmp(&b.apic_id));
         local_x2apics.sort_by(|a, b| a.apic_id.cmp(&b.apic_id));

@@ -554,10 +554,10 @@ pub fn process_madt() -> (Vec<LocalApic>, Vec<LocalX2Apic>, Vec<IoApic>) {
                     trace!("MADT Entry: {:?}", apic);
                     io_apics.push(apic);
                 }
-                _ => warn!("Unhandled entry {:?}", entry_type),
+                _ => warn!("Unhandled entry..."),
             }
 
-            assert!((*entry).Length > 0);
+            assert!((*entry).Length > 0, "Length is 0?");
             iterator = iterator.add((*entry).Length as usize);
         }
     }
@@ -582,6 +582,7 @@ pub fn process_madt() -> (Vec<LocalApic>, Vec<LocalX2Apic>, Vec<IoApic>) {
 /// table is not present. OSPM will use information provided by the MSCT only when
 /// the System Resource Affinity Table (SRAT) exists. The MSCT must contain all
 /// proximity and clock domains defined in the SRAT.
+#[allow(unused)]
 pub fn process_msct() -> Vec<MaximumProximityDomainInfo> {
     unsafe {
         let msct_handle = CStr::from_bytes_with_nul_unchecked(b"MSCT");
