@@ -24,15 +24,16 @@ mod acpi;
 mod cpuid;
 
 use alloc::vec::Vec;
+use core::convert::TryInto;
 use core::fmt;
 
-use log::{error, debug};
+use log::debug;
 
 use x86::apic::ApicId;
 
 use acpi::{
-    process_madt, process_srat, IoApic, LocalApic, LocalX2Apic,
-    MaximumProximityDomainInfo, MemoryAffinity,
+    process_madt, process_msct, process_srat, IoApic, LocalApic, LocalX2Apic,
+    MaximumProximityDomainInfo, MaximumSystemCharacteristics, MemoryAffinity,
 };
 
 /// A system global ID for a CPU.
@@ -336,8 +337,7 @@ lazy_static! {
         // Let's get all the APIC information and transform it into a MachineInfo struct
         let (mut local_apics, mut local_x2apics, ioapics) = process_madt();
         let (mut core_affinity, mut x2apic_affinity, memory_affinity) = process_srat();
-        let max_proximity_info = Vec::default();
-        error!("reintroduce process_msct()");
+        let (max_proximity_info, prox_domain_info) = process_msct();
 
         local_apics.sort_by(|a, b| a.apic_id.cmp(&b.apic_id));
         local_x2apics.sort_by(|a, b| a.apic_id.cmp(&b.apic_id));
@@ -355,12 +355,35 @@ lazy_static! {
 
         // Add all local APIC entries
         for local_apic in local_apics {
-            let affinity = core_affinity.pop();
-            if let Some(affinity_entry) = affinity.as_ref() {
-               assert_eq!(affinity_entry.apic_id, local_apic.apic_id, "The core_affinity and local_apic are not in the same order?")
+
+            // Try to figure out which proximity domain (NUMA node) a thread belongs to:
+            let mut proximity_domain = None;
+            if !core_affinity.is_empty() {
+                let affinity_entry = core_affinity.pop();
+                if affinity_entry.as_ref().unwrap().apic_id == local_apic.apic_id {
+                    proximity_domain = affinity_entry.as_ref().map(|a| a.proximity_domain as u64);
+                }
+                else {
+                    core_affinity.push(affinity_entry.unwrap());
+                }
             }
 
-            let t = Thread::new_with_apic(global_thread_id, local_apic, affinity.map(|a| a.proximity_domain as u64));
+            // Cores with IDs < 255 appear as local apic entries, cores above
+            // 255 appear as x2apic entries. However, for SRAT entries (to
+            // figure out NUMA affinity), some machines will put all entries as
+            // X2APIC affinities :S. So we have to check the x2apic_affinity too
+            if proximity_domain.is_none() && !x2apic_affinity.is_empty() {
+                let affinity_entry = x2apic_affinity.pop();
+                let x2apic_id: u8 = affinity_entry.as_ref().unwrap().x2apic_id.try_into().unwrap();
+                if x2apic_id == local_apic.apic_id {
+                    proximity_domain = affinity_entry.as_ref().map(|a| a.proximity_domain as u64);
+                }
+                else {
+                    x2apic_affinity.push(affinity_entry.unwrap());
+                }
+            }
+
+            let t = Thread::new_with_apic(global_thread_id, local_apic, proximity_domain);
             debug!("Found {:?}", t);
             threads.push(t);
             global_thread_id += 1;
@@ -405,6 +428,7 @@ lazy_static! {
             ioapics,
             memory_affinity,
             max_proximity_info,
+            prox_domain_info
         )
     };
 }
@@ -419,7 +443,8 @@ pub struct MachineInfo {
     nodes: Vec<Node>,
     memory_affinity: Vec<MemoryAffinity>,
     io_apics: Vec<IoApic>,
-    max_proximity_info: Vec<MaximumProximityDomainInfo>,
+    max_proximity_info: MaximumSystemCharacteristics,
+    proximity_domains: Vec<MaximumProximityDomainInfo>,
 }
 
 impl MachineInfo {
@@ -431,7 +456,8 @@ impl MachineInfo {
         nodes: Vec<Node>,
         io_apics: Vec<IoApic>,
         memory_affinity: Vec<MemoryAffinity>,
-        max_proximity_info: Vec<MaximumProximityDomainInfo>,
+        max_proximity_info: MaximumSystemCharacteristics,
+        proximity_domains: Vec<MaximumProximityDomainInfo>,
     ) -> MachineInfo {
         MachineInfo {
             threads,
@@ -441,6 +467,7 @@ impl MachineInfo {
             memory_affinity,
             io_apics,
             max_proximity_info,
+            proximity_domains,
         }
     }
 

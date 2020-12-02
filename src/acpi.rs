@@ -10,7 +10,7 @@ use crate::alloc::vec::Vec;
 use core::alloc::Layout;
 
 use cstr_core::CStr;
-use log::{debug, info, trace, warn};
+use log::{debug, info, trace};
 
 const ACPI_FULL_PATHNAME: u32 = 0;
 const ACPI_TYPE_INTEGER: u32 = 0x01;
@@ -214,26 +214,45 @@ pub struct LocalX2Apic {
 }
 
 /// Information about maximum supported instances in the system.
-#[derive(Debug, Eq, PartialEq)]
-pub struct MaximumProximityDomainInfo {
+#[derive(Debug, Eq, PartialEq, Default)]
+pub struct MaximumSystemCharacteristics {
     /// Offset in bytes to the Proximity Domain Information Structure table entry.
-    proximity_offset: u32,
+    pub proximity_offset: u32,
 
     /// Indicates the maximum number of Proximity Domains ever possible in the system.
     /// The number reported in this field is (maximum domains – 1).
-    max_proximity_domain: u32,
+    pub max_proximity_domain: u32,
 
     /// Indicates the maximum number of Clock Domains ever possible in the system.
     /// The number reported in this field is (maximum domains – 1).
     ///
     /// See also: “_CDM (Clock Domain)”.
-    max_clock_domains: u32,
+    pub max_clock_domains: u32,
 
     /// Indicates the maximum Physical Address ever possible in the system.
     ///
     /// # Note
     /// This is the top of the reachable physical address.
-    max_address: u64,
+    pub max_address: u64,
+}
+
+/// Information about maximum supported instances in the system.
+#[derive(Debug, Eq, PartialEq)]
+pub struct MaximumProximityDomainInfo {
+    /// The starting proximity domain for the proximity domain range that
+    /// this structure is providing information.
+    pub range_start: u32,
+    /// The ending proximity domain for the proximity domain range that
+    /// this structure is providing information.
+    pub range_end: u32,
+    /// The Maximum Processor Capacity of each of the Proximity Domains specified in the range.
+    ///
+    /// A value of 0 means that the proximity domains do not contain processors.
+    /// This field must be>= the number of processor entries for the domain in the SRAT.
+    pub processor_capacity: u32,
+    /// Maximum Memory Capacity (size in bytes) of the Proximity Domains specified in the range.
+    /// A value of 0 means that the proximity domains do not contain memory
+    pub memory_capacity: u64,
 }
 
 #[allow(unused)]
@@ -566,7 +585,7 @@ pub fn process_madt() -> (Vec<LocalApic>, Vec<LocalX2Apic>, Vec<IoApic>) {
 }
 
 /// Parse the MSCT table (maximum system characteristics for the platform).
-/// Returns all entries as a vector of MaximumProximityDomainInfo (or an empty vector
+/// Returns all entries as a vector of MaximumSystemCharacteristics (or an empty vector
 /// if table does not exist).
 ///
 /// The Maximum Proximity Domain Information Structure is used to report system
@@ -582,10 +601,12 @@ pub fn process_madt() -> (Vec<LocalApic>, Vec<LocalX2Apic>, Vec<IoApic>) {
 /// table is not present. OSPM will use information provided by the MSCT only when
 /// the System Resource Affinity Table (SRAT) exists. The MSCT must contain all
 /// proximity and clock domains defined in the SRAT.
-#[allow(unused)]
-pub fn process_msct() -> Vec<MaximumProximityDomainInfo> {
+pub fn process_msct() -> (
+    MaximumSystemCharacteristics,
+    Vec<MaximumProximityDomainInfo>,
+) {
     unsafe {
-        let msct_handle = CStr::from_bytes_with_nul_unchecked(b"MSCT");
+        let msct_handle = CStr::from_bytes_with_nul_unchecked(b"MSCT\0");
         let mut table_header: *mut ACPI_TABLE_HEADER = ptr::null_mut();
 
         let ret = AcpiGetTable(
@@ -594,36 +615,46 @@ pub fn process_msct() -> Vec<MaximumProximityDomainInfo> {
             &mut table_header,
         );
         if ret != AE_OK {
-            return Vec::new();
+            return (Default::default(), Vec::new());
         }
 
         let msct_tbl_ptr = table_header as *const ACPI_TABLE_MSCT;
         let msct_table_len = (*msct_tbl_ptr).Header.Length as usize;
         let msct_table_end = (msct_tbl_ptr as *const c_void).add(msct_table_len);
 
+        let msc = MaximumSystemCharacteristics {
+            proximity_offset: (*msct_tbl_ptr).ProximityOffset,
+            max_proximity_domain: (*msct_tbl_ptr).MaxProximityDomains,
+            max_clock_domains: (*msct_tbl_ptr).MaxClockDomains,
+            max_address: (*msct_tbl_ptr).MaxAddress,
+        };
+
         debug!(
-            "MSCT Table: Rev={} Len={} OemID={:?}",
+            "MSCT Table: Rev={} Len={} OemID={:?} Characteristics {:?}",
             (*msct_tbl_ptr).Header.Revision,
             msct_table_len,
-            (*msct_tbl_ptr).Header.OemId
+            (*msct_tbl_ptr).Header.OemId,
+            msc
         );
 
         let mut max_prox_domains = Vec::with_capacity(24);
         let mut iterator = (msct_tbl_ptr as *const c_void).add(mem::size_of::<ACPI_TABLE_MSCT>());
         while iterator < msct_table_end {
-            let entry: *const Struct_acpi_table_msct = iterator as *const Struct_acpi_table_msct;
+            let entry: *const ACPI_MSCT_PROXIMITY = iterator as *const ACPI_MSCT_PROXIMITY;
 
-            trace!("MSCT entry: {:?}", entry);
-            max_prox_domains.push(MaximumProximityDomainInfo {
-                proximity_offset: (*entry).ProximityOffset,
-                max_proximity_domain: (*entry).MaxProximityDomains,
-                max_clock_domains: (*entry).MaxClockDomains,
-                max_address: (*entry).MaxAddress,
-            });
-            assert_eq!((*entry).Header.Length, 22);
-            iterator = iterator.add((*entry).Header.Length as usize);
+            let mpdi = MaximumProximityDomainInfo {
+                range_start: (*entry).RangeEnd,
+                range_end: (*entry).RangeStart,
+                processor_capacity: (*entry).ProcessorCapacity,
+                memory_capacity: (*entry).MemoryCapacity,
+            };
+            trace!("MSCT entry: {:?}", mpdi);
+            max_prox_domains.push(mpdi);
+
+            assert_eq!((*entry).Length, 22);
+            iterator = iterator.add((*entry).Length as usize);
         }
 
-        max_prox_domains
+        (msc, max_prox_domains)
     }
 }
