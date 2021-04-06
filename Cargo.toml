@@ -1,6 +1,6 @@
 [package]
 name = "topology"
-version = "0.0.2"
+version = "0.0.3"
 authors = ["Gerd Zellweger <mail@gerdzellweger.com>"]
 edition = "2018"
 
@@ -15,5 +15,5 @@ license = "MIT OR Apache-2.0"
 x86 = "0.37"
 log = "0.4"
 lazy_static = { version = "1.4", features = ["spin_no_std"] }
+cstr_core = { version = "0.2.3", default-features = false }
 acpica-sys = { git = "https://github.com/gz/acpica-sys.git" }
-cstr_core = { git = "https://github.com/gz/cstr_core.git", default-features = false }
