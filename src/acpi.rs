@@ -1,5 +1,5 @@
 //! ACPI parsing functionality for relevant topology information.
-use acpica_sys::*;
+use libacpica::*;
 
 use core::fmt;
 use core::mem;
@@ -261,7 +261,7 @@ fn acpi_get_integer(handle: ACPI_HANDLE, name: *const i8, reg: &mut ACPI_INTEGER
         let mut object: ACPI_OBJECT = mem::zeroed();
         let mut namebuf: ACPI_BUFFER = ACPI_BUFFER {
             Length: mem::size_of::<ACPI_OBJECT>() as u64,
-            Pointer: &mut object as *mut _ as *mut acpica_sys::c_void,
+            Pointer: &mut object as *mut _ as *mut libacpica::c_void,
         };
 
         let ret = AcpiEvaluateObjectTyped(
@@ -287,13 +287,13 @@ pub fn process_pcie() {
         unsafe extern "C" fn call_back(
             handle: ACPI_HANDLE,
             _nexting: u32,
-            _context: *mut acpica_sys::c_void,
-            _return_value: *mut *mut acpica_sys::c_void,
+            _context: *mut libacpica::c_void,
+            _return_value: *mut *mut libacpica::c_void,
         ) -> u32 {
             let mut namebuf: ACPI_BUFFER = ACPI_BUFFER {
                 Length: 256,
                 Pointer: alloc::alloc(Layout::from_size_align_unchecked(128, 0x1))
-                    as *mut acpica_sys::c_void,
+                    as *mut libacpica::c_void,
             };
             let _ret = AcpiGetName(handle, ACPI_FULL_PATHNAME, &mut namebuf);
             let name = CStr::from_ptr(namebuf.Pointer as *const i8)
