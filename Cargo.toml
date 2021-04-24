@@ -1,6 +1,6 @@
 [package]
 name = "atopology"
-version = "0.0.3"
+version = "0.0.4"
 authors = ["Gerd Zellweger <mail@gerdzellweger.com>"]
 edition = "2018"
 
@@ -13,7 +13,7 @@ keywords = ["os", "hwloc", "hwinfo", "topology", "x86-64"]
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-x86 = "0.37"
+x86 = "0.38"
 log = "0.4"
 lazy_static = { version = "1.4", features = ["spin_no_std"] }
 cstr_core = { version = "0.2.3", default-features = false }
