@@ -17,4 +17,4 @@ x86 = "0.39"
 log = "0.4"
 lazy_static = { version = "1.4", features = ["spin_no_std"] }
 cstr_core = { version = "0.2.3", default-features = false }
-libacpica = "0.0.5"
+libacpica = "0.0.6"
