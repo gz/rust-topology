@@ -9,7 +9,7 @@ use crate::alloc::alloc;
 use crate::alloc::vec::Vec;
 use core::alloc::Layout;
 
-use acpi_types::*;
+use crate::acpi_types::*;
 
 use cstr_core::CStr;
 use log::{debug, info, trace};

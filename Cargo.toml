@@ -1,6 +1,6 @@
 [package]
 name = "atopology"
-version = "0.0.7"
+version = "0.0.8"
 authors = ["Gerd Zellweger <mail@gerdzellweger.com>"]
 edition = "2018"
 
