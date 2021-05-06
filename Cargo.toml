@@ -1,6 +1,6 @@
 [package]
 name = "atopology"
-version = "0.0.6"
+version = "0.0.7"
 authors = ["Gerd Zellweger <mail@gerdzellweger.com>"]
 edition = "2018"
 
@@ -17,4 +17,10 @@ x86 = "0.39"
 log = "0.4"
 lazy_static = { version = "1.4", features = ["spin_no_std"] }
 cstr_core = { version = "0.2.3", default-features = false }
+
+[target.'cfg(target_os = "none")'.dependencies]
 libacpica = "0.0.6"
+
+[target.'cfg(not(target_os = "none"))'.dependencies]
+env_logger = "0.8"
+procfs = "0.9"

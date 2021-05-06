@@ -11,7 +11,7 @@
 //! Intel Topology is a pretty complicated subject (unfortunately), relevant documentation is here:
 //! * https://software.intel.com/en-us/articles/intel-64-architecture-processor-topology-enumeration/
 //! * https://acpica.org/documentation
-#![no_std]
+#![cfg_attr(target_os = "none", no_std)]
 
 extern crate alloc;
 extern crate core;
@@ -20,10 +20,13 @@ extern crate lazy_static;
 extern crate cstr_core;
 extern crate log;
 
+#[cfg(target_os = "none")]
 mod acpi;
+mod acpi_types;
 mod cpuid;
 
 use alloc::vec::Vec;
+#[cfg(target_os = "none")]
 use core::convert::TryInto;
 use core::fmt;
 
@@ -31,9 +34,12 @@ use log::debug;
 
 use x86::apic::ApicId;
 
-use acpi::{
-    process_madt, process_msct, process_srat, IoApic, LocalApic, LocalX2Apic,
-    MaximumProximityDomainInfo, MaximumSystemCharacteristics, MemoryAffinity,
+#[cfg(target_os = "none")]
+use acpi::{process_madt, process_msct, process_srat};
+
+use acpi_types::{
+    IoApic, LocalApic, LocalX2Apic, MaximumProximityDomainInfo, MaximumSystemCharacteristics,
+    MemoryAffinity,
 };
 
 /// A system global ID for a CPU.
@@ -325,6 +331,7 @@ impl Node {
     }
 }
 
+#[cfg(target_os = "none")]
 lazy_static! {
     /// A struct that contains all information about current machine
     /// we're running on (discovered from ACPI Tables and cpuid).
@@ -399,6 +406,73 @@ lazy_static! {
             debug!("Found {:?}", t);
             threads.push(t);
             global_thread_id += 1;
+        }
+
+        // Next, we can construct the cores, packages, and nodes from threads
+        let mut cores: Vec<Core> = threads.iter().map(|t| Core::new(t.node_id, t.package_id, t.core_id)).collect();
+        cores.sort();
+        cores.dedup();
+
+        // Gather all packages
+        let mut packages: Vec<Package> = threads.iter().map(|t| Package::new(t.package_id, t.node_id)).collect();
+        packages.sort();
+        packages.dedup();
+
+        // Gather all nodes
+        let mut nodes: Vec<Node> = threads
+            .iter()
+            .filter(|t| t.node_id.is_some())
+            .map(|t| Node::new(t.node_id.unwrap_or(0)))
+            .collect::<Vec<Node>>();
+        nodes.sort();
+        nodes.dedup();
+
+        MachineInfo::new(
+            threads,
+            cores,
+            packages,
+            nodes,
+            ioapics,
+            memory_affinity,
+            max_proximity_info,
+            prox_domain_info
+        )
+    };
+}
+
+#[cfg(not(target_os = "none"))]
+lazy_static! {
+    /// A struct that contains all information about current machine we're
+    /// running on.
+    ///
+    /// This code is not running on baremetal, so we don't use ACPI but rely on
+    /// procfs to parse some data.
+    pub static ref MACHINE_TOPOLOGY: MachineInfo = {
+        let ioapics = Vec::new();
+        let memory_affinity = Vec::new();
+        let max_proximity_info = MaximumSystemCharacteristics::default();
+        let prox_domain_info = Vec::new();
+
+        // Make Thread objects out of APIC MADT entries:
+        let mut threads: Vec<Thread> = Vec::new();
+
+        let cpuinfo = procfs::CpuInfo::new().expect("can't have cpuinfo");
+        for res in cpuinfo.cpus {
+            let la = LocalApic {
+                apic_id: res["apicid"].parse::<u8>().unwrap(),
+                processor_id: res["processor"].parse::<u8>().unwrap(), // TODO: probably not correct entry
+                enabled: true
+            };
+
+            let t = Thread {
+                id: res["processor"].parse::<u64>().unwrap(),
+                node_id: None, // TODO: complete me
+                package_id: 0, // TODO: complete me
+                core_id: res["core id"].parse::<u64>().unwrap(),
+                thread_id: 0, // TODO: complete me
+                apic: ApicThreadInfo::Apic(la),
+            };
+            threads.push(t);
         }
 
         // Next, we can construct the cores, packages, and nodes from threads
@@ -565,5 +639,15 @@ impl MachineInfo {
     /// Return an iterator over all I/O APICs in the system.
     pub fn io_apics(&'static self) -> impl Iterator<Item = &IoApic> {
         self.io_apics.iter()
+    }
+}
+
+#[cfg(test)]
+mod test {
+
+    #[test]
+    fn local_topo() {
+        env_logger::try_init();
+        log::info!("{:?}", super::MACHINE_TOPOLOGY.num_nodes());
     }
 }
