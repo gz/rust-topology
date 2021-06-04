@@ -1,5 +1,6 @@
 //! CPUID related functionality for relevant topology information.
 use alloc::vec::Vec;
+use core::convert::TryInto;
 
 use crate::{CoreId, PackageId, ThreadId};
 
@@ -97,5 +98,9 @@ pub fn get_topology_from_x2apic_id(x2apic_id: u32) -> (ThreadId, CoreId, Package
     let core_id = (x2apic_id & core_select_mask) >> smt_x2apic_shift;
     let pkg_id = (x2apic_id & pkg_select_mask) >> core_x2apic_shift;
 
-    (smt_id.into(), core_id.into(), pkg_id.into())
+    (
+        smt_id.try_into().unwrap(),
+        core_id.try_into().unwrap(),
+        pkg_id.try_into().unwrap(),
+    )
 }

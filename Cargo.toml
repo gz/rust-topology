@@ -1,9 +1,8 @@
 [package]
 name = "atopology"
-version = "0.0.8"
+version = "0.0.9"
 authors = ["Gerd Zellweger <mail@gerdzellweger.com>"]
 edition = "2018"
-
 homepage = "https://github.com/gz/rust-topology"
 repository = "https://github.com/gz/rust-topology"
 documentation = "https://docs.rs/topology"

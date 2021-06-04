@@ -14,11 +14,6 @@
 #![cfg_attr(target_os = "none", no_std)]
 
 extern crate alloc;
-extern crate core;
-#[macro_use]
-extern crate lazy_static;
-extern crate cstr_core;
-extern crate log;
 
 #[cfg(target_os = "none")]
 mod acpi;
@@ -30,32 +25,30 @@ use alloc::vec::Vec;
 use core::convert::TryInto;
 use core::fmt;
 
-use log::debug;
-
+use lazy_static::lazy_static;
 use x86::apic::ApicId;
 
 #[cfg(target_os = "none")]
 use acpi::{process_madt, process_msct, process_srat};
-
 use acpi_types::{
     IoApic, LocalApic, LocalX2Apic, MaximumProximityDomainInfo, MaximumSystemCharacteristics,
     MemoryAffinity,
 };
 
 /// A system global ID for a CPU.
-pub type GlobalThreadId = u64;
+pub type GlobalThreadId = usize;
 
 /// A hardware scheduling unit (has an APIC), (unique within a core).
-pub type ThreadId = u64;
+pub type ThreadId = usize;
 
 /// A core, with one or more threads (unique within a packet).
-pub type CoreId = u64;
+pub type CoreId = usize;
 
 /// A socket with one or more cores (usually with a shared LLC).
-pub type PackageId = u64;
+pub type PackageId = usize;
 
 /// Affinity region, a NUMA node (consists of a bunch of threads/core/packages and memory regions).
-pub type NodeId = u64;
+pub type NodeId = usize;
 
 /// Differentiate between local APICs and X2APICs.
 #[derive(Eq, PartialEq, Debug, Ord, PartialOrd)]
@@ -333,25 +326,31 @@ impl Node {
 
 #[cfg(target_os = "none")]
 lazy_static! {
-    /// A struct that contains all information about current machine
-    /// we're running on (discovered from ACPI Tables and cpuid).
+    /// A struct that contains all information about current machine we're
+    /// running on (discovered from ACPI Tables and cpuid).
     ///
     /// Should have some of the following:
     /// - Cores, NUMA nodes, Memory regions
     /// - Interrupt routing (I/O APICs, overrides) (TODO)
     /// - PCIe root complexes (TODO)
+    ///
+    /// # Note
+    /// Not `no_global_oom_handling` safe, low priority as this allocates early
+    /// during init and is static after (no hotplug support atm).
     pub static ref MACHINE_TOPOLOGY: MachineInfo = {
+        use log::debug;
+
         // Let's get all the APIC information and transform it into a MachineInfo struct
         let (mut local_apics, mut local_x2apics, ioapics) = process_madt();
         let (mut core_affinity, mut x2apic_affinity, memory_affinity) = process_srat();
         let (max_proximity_info, prox_domain_info) = process_msct();
 
-        local_apics.sort_by(|a, b| a.apic_id.cmp(&b.apic_id));
-        local_x2apics.sort_by(|a, b| a.apic_id.cmp(&b.apic_id));
+        local_apics.sort_unstable_by(|a, b| a.apic_id.cmp(&b.apic_id));
+        local_x2apics.sort_unstable_by(|a, b| a.apic_id.cmp(&b.apic_id));
 
         // These to are sorted in decending order since we pop from the stack:
-        core_affinity.sort_by(|a, b| b.apic_id.cmp(&a.apic_id));
-        x2apic_affinity.sort_by(|a, b| b.x2apic_id.cmp(&a.x2apic_id));
+        core_affinity.sort_unstable_by(|a, b| b.apic_id.cmp(&a.apic_id));
+        x2apic_affinity.sort_unstable_by(|a, b| b.x2apic_id.cmp(&a.x2apic_id));
 
         assert!(local_apics.len() == core_affinity.len() || core_affinity.is_empty(),
             "Either we have matching entries for core in affinity table or no affinity information at all.");
@@ -368,7 +367,7 @@ lazy_static! {
             if !core_affinity.is_empty() {
                 let affinity_entry = core_affinity.pop();
                 if affinity_entry.as_ref().unwrap().apic_id == local_apic.apic_id {
-                    proximity_domain = affinity_entry.as_ref().map(|a| a.proximity_domain as u64);
+                    proximity_domain = affinity_entry.as_ref().map(|a| a.proximity_domain as usize);
                 }
                 else {
                     core_affinity.push(affinity_entry.unwrap());
@@ -383,7 +382,7 @@ lazy_static! {
                 let affinity_entry = x2apic_affinity.pop();
                 let x2apic_id: u8 = affinity_entry.as_ref().unwrap().x2apic_id.try_into().unwrap();
                 if x2apic_id == local_apic.apic_id {
-                    proximity_domain = affinity_entry.as_ref().map(|a| a.proximity_domain as u64);
+                    proximity_domain = affinity_entry.as_ref().map(|a| a.proximity_domain as usize);
                 }
                 else {
                     x2apic_affinity.push(affinity_entry.unwrap());
@@ -402,7 +401,7 @@ lazy_static! {
             if let Some(affinity_entry) = affinity.as_ref() {
                 assert_eq!(affinity_entry.x2apic_id, local_x2apic.apic_id, "The x2apic_affinity and local_x2apic are not in the same order?");
             }
-            let t = Thread::new_with_x2apic(global_thread_id, local_x2apic, affinity.map(|a| a.proximity_domain as u64));
+            let t = Thread::new_with_x2apic(global_thread_id, local_x2apic, affinity.map(|a| a.proximity_domain as usize));
             debug!("Found {:?}", t);
             threads.push(t);
             global_thread_id += 1;
@@ -410,12 +409,12 @@ lazy_static! {
 
         // Next, we can construct the cores, packages, and nodes from threads
         let mut cores: Vec<Core> = threads.iter().map(|t| Core::new(t.node_id, t.package_id, t.core_id)).collect();
-        cores.sort();
+        cores.sort_unstable();
         cores.dedup();
 
         // Gather all packages
         let mut packages: Vec<Package> = threads.iter().map(|t| Package::new(t.package_id, t.node_id)).collect();
-        packages.sort();
+        packages.sort_unstable();
         packages.dedup();
 
         // Gather all nodes
@@ -424,7 +423,7 @@ lazy_static! {
             .filter(|t| t.node_id.is_some())
             .map(|t| Node::new(t.node_id.unwrap_or(0)))
             .collect::<Vec<Node>>();
-        nodes.sort();
+        nodes.sort_unstable();
         nodes.dedup();
 
         MachineInfo::new(
@@ -465,10 +464,10 @@ lazy_static! {
             };
 
             let t = Thread {
-                id: res["processor"].parse::<u64>().unwrap(),
+                id: res["processor"].parse::<usize>().unwrap(),
                 node_id: None, // TODO: complete me
                 package_id: 0, // TODO: complete me
-                core_id: res["core id"].parse::<u64>().unwrap(),
+                core_id: res["core id"].parse::<usize>().unwrap(),
                 thread_id: 0, // TODO: complete me
                 apic: ApicThreadInfo::Apic(la),
             };
@@ -477,12 +476,12 @@ lazy_static! {
 
         // Next, we can construct the cores, packages, and nodes from threads
         let mut cores: Vec<Core> = threads.iter().map(|t| Core::new(t.node_id, t.package_id, t.core_id)).collect();
-        cores.sort();
+        cores.sort_unstable();
         cores.dedup();
 
         // Gather all packages
         let mut packages: Vec<Package> = threads.iter().map(|t| Package::new(t.package_id, t.node_id)).collect();
-        packages.sort();
+        packages.sort_unstable();
         packages.dedup();
 
         // Gather all nodes
@@ -491,7 +490,7 @@ lazy_static! {
             .filter(|t| t.node_id.is_some())
             .map(|t| Node::new(t.node_id.unwrap_or(0)))
             .collect::<Vec<Node>>();
-        nodes.sort();
+        nodes.sort_unstable();
         nodes.dedup();
 
         MachineInfo::new(

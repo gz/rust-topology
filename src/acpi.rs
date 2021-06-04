@@ -1,7 +1,6 @@
 //! ACPI parsing functionality for relevant topology information.
 use libacpica::*;
 
-use core::fmt;
 use core::mem;
 use core::ptr;
 
