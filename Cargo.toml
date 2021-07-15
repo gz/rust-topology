@@ -21,5 +21,5 @@ cstr_core = { version = "0.2.3", default-features = false }
 libacpica = "0.0.6"
 
 [target.'cfg(not(target_os = "none"))'.dependencies]
-env_logger = "0.8"
+env_logger = "0.9"
 procfs = "0.9"
