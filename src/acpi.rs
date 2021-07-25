@@ -419,3 +419,20 @@ pub fn process_msct() -> (
         (msc, max_prox_domains)
     }
 }
+
+pub fn process_nfit() {
+    unsafe {
+        let nfit_handle = CStr::from_bytes_with_nul_unchecked(b"NFIT\0");
+        let mut table_header: *mut ACPI_TABLE_HEADER = ptr::null_mut();
+
+        let ret = AcpiGetTable(
+            nfit_handle.as_ptr() as *mut cstr_core::c_char,
+            1,
+            &mut table_header,
+        );
+        if ret != AE_OK {
+            info!("Failed - {}", ret);
+        }
+        info!("Passed - {}; Discoverd NVDIMMs {:?}", ret, table_header);
+    }
+}
