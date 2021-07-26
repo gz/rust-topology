@@ -1,4 +1,5 @@
 //! ACPI parsing functionality for relevant topology information.
+use bitflags::*;
 use libacpica::*;
 
 use core::mem;
@@ -420,6 +421,7 @@ pub fn process_msct() -> (
     }
 }
 
+// https://uefi.org/specs/ACPI/6.4/05_ACPI_Software_Programming_Model/ACPI_Software_Programming_Model.html#nvdimm-firmware-interface-table-nfit
 pub fn process_nfit() {
     unsafe {
         let nfit_handle = CStr::from_bytes_with_nul_unchecked(b"NFIT\0");
@@ -433,6 +435,155 @@ pub fn process_nfit() {
         if ret != AE_OK {
             info!("Failed - {}", ret);
         }
-        info!("Passed - {}; Discoverd NVDIMMs {:?}", ret, table_header);
+        let nfit_tbl_ptr = table_header as *const ACPI_TABLE_NFIT;
+        let nfit_table_len = (*nfit_tbl_ptr).Header.Length as usize;
+        let nfit_table_end = (nfit_tbl_ptr as *const c_void).add(nfit_table_len);
+        info!("Discoverd NVDIMM(s), table length {:?}", nfit_table_len);
+
+        let mut iterator = (nfit_tbl_ptr as *const c_void).add(mem::size_of::<ACPI_TABLE_NFIT>());
+        let entry: *const ACPI_NFIT_SYSTEM_ADDRESS = iterator as *const ACPI_NFIT_SYSTEM_ADDRESS;
+        fmt_nfit_spa_range_structure(entry);
+
+        iterator = iterator.add((*entry).Header.Length as usize);
+        let entry: *const ACPI_NFIT_MEMORY_MAP = iterator as *const ACPI_NFIT_MEMORY_MAP;
+        fmt_nfit_region_mapping_structure(entry);
+
+        iterator = iterator.add((*entry).Header.Length as usize);
+        let entry: *const ACPI_NFIT_CONTROL_REGION = iterator as *const ACPI_NFIT_CONTROL_REGION;
+        fmt_nfit_control_region_structure(entry);
+    }
+
+    bitflags! {
+        pub struct MappingAttributes: u64 {
+            const EFI_MEMORY_UC = 0x00000001;
+        const EFI_MEMORY_WC = 0x00000002;
+        const EFI_MEMORY_WT = 0x00000004;
+        const EFI_MEMORY_WB = 0x00000008;
+        const EFI_MEMORY_UCE = 0x00000010;
+        const EFI_MEMORY_WP = 0x00001000;
+        const EFI_MEMORY_RP = 0x00002000;
+        const EFI_MEMORY_XP = 0x00004000;
+        const EFI_MEMORY_NV = 0x00008000;
+        const EFI_MEMORY_MORE_RELIABLE = 0x00010000;
+        const EFI_MEMORY_RO = 0x00020000;
+        const EFI_MEMORY_SP = 0x00040000;
+        }
+    }
+
+    /// Convert u64 to MappingAttributes.
+    impl From<u64> for MappingAttributes {
+        fn from(mode: u64) -> MappingAttributes {
+            MappingAttributes::from_bits_truncate(mode)
+        }
+    }
+
+    /// Convert MappingAttributes to u64.
+    impl From<MappingAttributes> for u64 {
+        fn from(mode: MappingAttributes) -> u64 {
+            mode.bits()
+        }
+    }
+
+    fn fmt_nfit_spa_range_structure(entry: *const ACPI_NFIT_SYSTEM_ADDRESS) {
+        unsafe {
+            assert_eq!((*entry).Header.Type, 0);
+            info!(
+                "ACPI_NFIT_SYSTEM_ADDRESS - Type {}, Length {},
+                RangeIndex: {},
+                Flags: {},
+                ProximityDomain: {},
+                RangeGuid: {:x?},
+                Address: 0x{:x},
+                Length: {} Bytes,
+                MemoryMapping: {:?}",
+                (*entry).Header.Type,
+                (*entry).Header.Length,
+                (*entry).RangeIndex,
+                (*entry).Flags,
+                (*entry).ProximityDomain,
+                (*entry).RangeGuid,
+                (*entry).Address,
+                (*entry).Length,
+                MappingAttributes::from((*entry).MemoryMapping)
+            );
+        }
+    }
+
+    fn fmt_nfit_region_mapping_structure(entry: *const ACPI_NFIT_MEMORY_MAP) {
+        unsafe {
+            assert_eq!((*entry).Header.Type, 1);
+            info!(
+                "ACPI_NFIT_TYPE_MEMORY_MAP - Type {}, Length {}
+                Device Handle: {},
+                PhysicalId: {},
+                RegionId: {},
+                RangeIndex: {},
+                RegionIndex: {},
+                RegionSize: {},
+                RegionOffset: {},
+                Address: {},
+                InterleaveIndex: {},
+                InterleaveWays: {},
+                Flags: {}",
+                (*entry).Header.Type,
+                (*entry).Header.Length,
+                (*entry).DeviceHandle,
+                (*entry).PhysicalId,
+                (*entry).RegionId,
+                (*entry).RangeIndex,
+                (*entry).RegionIndex,
+                (*entry).RegionSize,
+                (*entry).RegionOffset,
+                (*entry).Address,
+                (*entry).InterleaveIndex,
+                (*entry).InterleaveWays,
+                (*entry).Flags,
+            );
+        }
+    }
+
+    fn fmt_nfit_control_region_structure(entry: *const ACPI_NFIT_CONTROL_REGION) {
+        unsafe {
+            assert_eq!((*entry).Header.Type, 4);
+            info!(
+                "ACPI_NFIT_TYPE_CONTROL_REGION - Type {}, Length {}
+                RegionIndex: {},
+                VendorId: {},
+                DeviceId: {},
+                RevisionId: {},
+                SubsystemVendorId: {},
+                SubsystemDeviceId: {},
+                SubsystemRevisionId: {},
+                Reserved: {:?},
+                SerialNumber: {},
+                Code: {},
+                Windows: {},
+                WindowSize: {},
+                CommandOffset: {},
+                CommandSize: {},
+                StatusOffset: {},
+                StatusSize: {},
+                Flags: {}",
+                (*entry).Header.Type,
+                (*entry).Header.Length,
+                (*entry).RegionIndex,
+                (*entry).VendorId,
+                (*entry).DeviceId,
+                (*entry).RevisionId,
+                (*entry).SubsystemVendorId,
+                (*entry).SubsystemDeviceId,
+                (*entry).SubsystemRevisionId,
+                (*entry).Reserved,
+                (*entry).SerialNumber,
+                (*entry).Code,
+                (*entry).Windows,
+                (*entry).WindowSize,
+                (*entry).CommandOffset,
+                (*entry).CommandSize,
+                (*entry).StatusOffset,
+                (*entry).StatusSize,
+                (*entry).Flags,
+            );
+        }
     }
 }
