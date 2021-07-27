@@ -2,6 +2,7 @@
 use bitflags::*;
 use libacpica::*;
 
+use core::fmt;
 use core::mem;
 use core::ptr;
 
@@ -484,6 +485,46 @@ pub fn process_nfit() {
         }
     }
 
+    struct Guid {
+        data1: u32,
+        data2: u16,
+        data3: u16,
+        index8: u8,
+        index9: u8,
+        index10: u8,
+        index11: u8,
+        index12: u8,
+        index13: u8,
+        index14: u8,
+        index15: u8,
+    }
+
+    impl fmt::Debug for Guid {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(
+                f,
+                "{{ {:#X}, {:#X}, {:#X}, {:#X}, {:#X}, {:#X}, {:#X}, {:#X}, {:#X}, {:#X}, {:#X} }}",
+                self.data1,
+                self.data2,
+                self.data3,
+                self.index8,
+                self.index9,
+                self.index10,
+                self.index11,
+                self.index12,
+                self.index13,
+                self.index14,
+                self.index15
+            )
+        }
+    }
+
+    fn from_slice_u8_to_Guid(slice: &[u8]) -> Guid {
+        let p: *const [u8; core::mem::size_of::<Guid>()] =
+            slice.as_ptr() as *const [u8; core::mem::size_of::<Guid>()];
+        unsafe { core::mem::transmute(*p) }
+    }
+
     fn fmt_nfit_spa_range_structure(entry: *const ACPI_NFIT_SYSTEM_ADDRESS) {
         unsafe {
             assert_eq!((*entry).Header.Type, 0);
@@ -501,7 +542,7 @@ pub fn process_nfit() {
                 (*entry).RangeIndex,
                 (*entry).Flags,
                 (*entry).ProximityDomain,
-                (*entry).RangeGuid,
+                from_slice_u8_to_Guid(&(*entry).RangeGuid),
                 (*entry).Address,
                 (*entry).Length,
                 MappingAttributes::from((*entry).MemoryMapping)
