@@ -433,25 +433,42 @@ pub fn process_nfit() {
             1,
             &mut table_header,
         );
-        if ret != AE_OK {
-            info!("Failed - {}", ret);
+        if ret == AE_OK {
+            let nfit_tbl_ptr = table_header as *const ACPI_TABLE_NFIT;
+            let nfit_table_len = (*nfit_tbl_ptr).Header.Length as usize;
+            let nfit_table_end = (nfit_tbl_ptr as *const c_void).add(nfit_table_len);
+            info!("Discoverd NVDIMM(s), table length {:?}", nfit_table_len);
+
+            let mut iterator =
+                (nfit_tbl_ptr as *const c_void).add(mem::size_of::<ACPI_TABLE_NFIT>());
+            while iterator < nfit_table_end {
+                let header = iterator as *const ACPI_NFIT_HEADER;
+                let entry_type: Enum_AcpiNfitType = mem::transmute((*header).Type as i32);
+
+                match entry_type {
+                    Enum_AcpiNfitType::ACPI_NFIT_TYPE_SYSTEM_ADDRESS => {
+                        let entry = iterator as *const ACPI_NFIT_SYSTEM_ADDRESS;
+                        fmt_nfit_spa_range_structure(entry);
+                    }
+                    Enum_AcpiNfitType::ACPI_NFIT_TYPE_MEMORY_MAP => {
+                        let entry = iterator as *const ACPI_NFIT_MEMORY_MAP;
+                        fmt_nfit_region_mapping_structure(entry);
+                    }
+                    Enum_AcpiNfitType::ACPI_NFIT_TYPE_INTERLEAVE => unreachable!(),
+                    Enum_AcpiNfitType::ACPI_NFIT_TYPE_SMBIOS => unreachable!(),
+                    Enum_AcpiNfitType::ACPI_NFIT_TYPE_CONTROL_REGION => {
+                        let entry = iterator as *const ACPI_NFIT_CONTROL_REGION;
+                        fmt_nfit_control_region_structure(entry);
+                    }
+                    Enum_AcpiNfitType::ACPI_NFIT_TYPE_DATA_REGION => unreachable!(),
+                    Enum_AcpiNfitType::ACPI_NFIT_TYPE_FLUSH_ADDRESS => unreachable!(),
+                    _ => unreachable!(),
+                }
+                iterator = iterator.add((*header).Length as usize);
+            }
+        } else {
+            debug!("ACPI NFIT Table not found.");
         }
-        let nfit_tbl_ptr = table_header as *const ACPI_TABLE_NFIT;
-        let nfit_table_len = (*nfit_tbl_ptr).Header.Length as usize;
-        let nfit_table_end = (nfit_tbl_ptr as *const c_void).add(nfit_table_len);
-        info!("Discoverd NVDIMM(s), table length {:?}", nfit_table_len);
-
-        let mut iterator = (nfit_tbl_ptr as *const c_void).add(mem::size_of::<ACPI_TABLE_NFIT>());
-        let entry: *const ACPI_NFIT_SYSTEM_ADDRESS = iterator as *const ACPI_NFIT_SYSTEM_ADDRESS;
-        fmt_nfit_spa_range_structure(entry);
-
-        iterator = iterator.add((*entry).Header.Length as usize);
-        let entry: *const ACPI_NFIT_MEMORY_MAP = iterator as *const ACPI_NFIT_MEMORY_MAP;
-        fmt_nfit_region_mapping_structure(entry);
-
-        iterator = iterator.add((*entry).Header.Length as usize);
-        let entry: *const ACPI_NFIT_CONTROL_REGION = iterator as *const ACPI_NFIT_CONTROL_REGION;
-        fmt_nfit_control_region_structure(entry);
     }
 
     bitflags! {
@@ -528,7 +545,7 @@ pub fn process_nfit() {
     fn fmt_nfit_spa_range_structure(entry: *const ACPI_NFIT_SYSTEM_ADDRESS) {
         unsafe {
             assert_eq!((*entry).Header.Type, 0);
-            info!(
+            debug!(
                 "ACPI_NFIT_SYSTEM_ADDRESS - Type {}, Length {},
                 RangeIndex: {},
                 Flags: {},
@@ -553,7 +570,7 @@ pub fn process_nfit() {
     fn fmt_nfit_region_mapping_structure(entry: *const ACPI_NFIT_MEMORY_MAP) {
         unsafe {
             assert_eq!((*entry).Header.Type, 1);
-            info!(
+            debug!(
                 "ACPI_NFIT_TYPE_MEMORY_MAP - Type {}, Length {}
                 Device Handle: {},
                 PhysicalId: {},
@@ -586,7 +603,7 @@ pub fn process_nfit() {
     fn fmt_nfit_control_region_structure(entry: *const ACPI_NFIT_CONTROL_REGION) {
         unsafe {
             assert_eq!((*entry).Header.Type, 4);
-            info!(
+            debug!(
                 "ACPI_NFIT_TYPE_CONTROL_REGION - Type {}, Length {}
                 RegionIndex: {},
                 VendorId: {},

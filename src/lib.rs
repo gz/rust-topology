@@ -28,6 +28,7 @@ use core::fmt;
 use lazy_static::lazy_static;
 use x86::apic::ApicId;
 
+#[cfg(target_os = "none")]
 pub use acpi::process_nfit;
 #[cfg(target_os = "none")]
 use acpi::{process_madt, process_msct, process_srat};
