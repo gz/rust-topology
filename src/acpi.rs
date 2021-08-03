@@ -584,11 +584,32 @@ pub fn process_nfit() {
     }
 
     fn fmt_nfit_region_mapping_structure(entry: *const ACPI_NFIT_MEMORY_MAP) {
+        // To parse DeviceHandle
+        const ACPI_NFIT_DIMM_NUMBER: u32 = 0xf; /* DIMM number within the memory channel */
+        const ACPI_NFIT_MEMORY_CHANNEL: u32 = 0xf << 4; /* Memory channel number within the memory controller */
+        const ACPI_NFIT_MEM_CONTROLLER_ID: u32 = 0xf << 8; /* Memory controller ID within the socket */
+        const ACPI_NFIT_SOCKET_ID: u32 = 0xf << 12; /* Socket ID within the node controller, if any */
+        const ACPI_NFIT_NODE_CONTROLLER_ID: u32 = 0xfff << 16; /* Node controller ID, if any */
+
+        // To parse Flags
+        const ACPI_NFIT_MEM_SAVE_FAILED: u32 = 0x1; /* 00: Last SAVE to Memory Device failed */
+        const ACPI_NFIT_MEM_RESTORE_FAILED: u32 = 0x1 << 1; /* 01: Last RESTORE from Memory Device failed */
+        const ACPI_NFIT_MEM_FLUSH_FAILED: u32 = 0x1 << 2; /* 02: Platform flush failed */
+        const ACPI_NFIT_MEM_NOT_ARMED: u32 = 0x1 << 3; /* 03: Memory Device is not armed */
+        const ACPI_NFIT_MEM_HEALTH_OBSERVED: u32 = 0x1 << 4; /* 04: Memory Device observed SMART/health events */
+        const ACPI_NFIT_MEM_HEALTH_ENABLED: u32 = 0x1 << 5; /* 05: SMART/health events enabled */
+        const ACPI_NFIT_MEM_MAP_FAILED: u32 = 0x1 << 6; /* 06: Mapping to SPA failed */
+
         unsafe {
             assert_eq!((*entry).Header.Type, 1);
             debug!(
                 "ACPI_NFIT_TYPE_MEMORY_MAP - Type {}, Length {}
-                Device Handle: {},
+                NfitDeviceHandle: 0x{:x},
+                NfitDeviceHandle.DimmNumber: 0x{:x},
+                NfitDeviceHandle.MemChannel: 0x{:x},
+                NfitDeviceHandle.MemControllerId: 0x{:x},
+                NfitDeviceHandle.SocketId: 0x{:x},
+                NfitDeviceHandle.NodeControllerId: 0x{:x},
                 PhysicalId: {},
                 RegionId: {},
                 RangeIndex: {},
@@ -602,6 +623,11 @@ pub fn process_nfit() {
                 (*entry).Header.Type,
                 (*entry).Header.Length,
                 (*entry).DeviceHandle,
+                (*entry).DeviceHandle & ACPI_NFIT_DIMM_NUMBER,
+                (*entry).DeviceHandle & ACPI_NFIT_MEMORY_CHANNEL,
+                (*entry).DeviceHandle & ACPI_NFIT_MEM_CONTROLLER_ID,
+                (*entry).DeviceHandle & ACPI_NFIT_SOCKET_ID,
+                (*entry).DeviceHandle & ACPI_NFIT_NODE_CONTROLLER_ID,
                 (*entry).PhysicalId,
                 (*entry).RegionId,
                 (*entry).RangeIndex,
