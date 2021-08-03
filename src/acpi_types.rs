@@ -85,6 +85,10 @@ impl MemoryAffinity {
         self.base_address + self.length
     }
 
+    pub fn is_non_volatile(&self) -> bool {
+        self.non_volatile
+    }
+
     /// Splits a provided memory range into three sub-ranges (a, b, c).
     /// where
     ///  - a is the sub-range of input that comes before this MemoryAffinity.
@@ -131,10 +135,11 @@ impl fmt::Debug for MemoryAffinity {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "MemoryAffinity {{ {:#x} -- {:#x}, node#{} }}",
+            "MemoryAffinity {{ {:#x} -- {:#x}, node#{}, Non-volatile: {} }}",
             self.start(),
             self.end(),
-            self.proximity_domain
+            self.proximity_domain,
+            self.is_non_volatile()
         )
     }
 }
