@@ -422,6 +422,18 @@ pub fn process_msct() -> (
     }
 }
 
+//TODO: Move this to acpica-sys repo.
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
+pub struct Struct_acpi_nfit_platform_capabilities {
+    pub Header: ACPI_NFIT_HEADER,
+    pub HighestValidCapability: UINT8,
+    pub Reserved: [UINT8; 3usize],
+    pub Capabilities: UINT32,
+    pub Reserved1: UINT32,
+}
+pub type ACPI_NFIT_PLATFORM_CAPABILITIES = Struct_acpi_nfit_platform_capabilities;
+
 // https://uefi.org/specs/ACPI/6.4/05_ACPI_Software_Programming_Model/ACPI_Software_Programming_Model.html#nvdimm-firmware-interface-table-nfit
 pub fn process_nfit() {
     unsafe {
@@ -462,6 +474,10 @@ pub fn process_nfit() {
                     }
                     Enum_AcpiNfitType::ACPI_NFIT_TYPE_DATA_REGION => unreachable!(),
                     Enum_AcpiNfitType::ACPI_NFIT_TYPE_FLUSH_ADDRESS => unreachable!(),
+                    Enum_AcpiNfitType::ACPI_NFIT_TYPE_RESERVED => {
+                        let entry = iterator as *const ACPI_NFIT_PLATFORM_CAPABILITIES;
+                        fmt_nfit_platform_capabilities_structure(entry);
+                    }
                     _ => unreachable!(),
                 }
                 iterator = iterator.add((*header).Length as usize);
@@ -641,6 +657,22 @@ pub fn process_nfit() {
                 (*entry).StatusOffset,
                 (*entry).StatusSize,
                 (*entry).Flags,
+            );
+        }
+    }
+
+    fn fmt_nfit_platform_capabilities_structure(entry: *const ACPI_NFIT_PLATFORM_CAPABILITIES) {
+        unsafe {
+            const ACPI_NFIT_CACHE_FLUSH_ENABLED: u32 = 0x1;
+            const ACPI_NFIT_CONTROLLER_FLUSH_ENABLED: u32 = 0x1 << 1;
+            const ACPI_NFIT_HARDWARE_MIRRORING_CAPABLE: u32 = 0x1 << 2;
+
+            assert_eq!((*entry).Header.Type, 7);
+            debug!(
+                "Capability {{ eADR: {}, ADR: {}, Mirroring: {} }}",
+                (*entry).Capabilities & ACPI_NFIT_CACHE_FLUSH_ENABLED > 0,
+                (*entry).Capabilities & ACPI_NFIT_CONTROLLER_FLUSH_ENABLED > 0,
+                (*entry).Capabilities & ACPI_NFIT_HARDWARE_MIRRORING_CAPABLE > 0
             );
         }
     }
