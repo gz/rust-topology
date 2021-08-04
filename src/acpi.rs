@@ -465,24 +465,24 @@ pub fn process_nfit() -> Vec<MemoryDescriptor> {
                 match entry_type {
                     Enum_AcpiNfitType::ACPI_NFIT_TYPE_SYSTEM_ADDRESS => {
                         let entry = iterator as *const ACPI_NFIT_SYSTEM_ADDRESS;
-                        let mem_desc = fmt_nfit_spa_range_structure(entry);
+                        let mem_desc = parse_nfit_spa_range_structure(entry);
                         pmem_descriptors.push(mem_desc);
                     }
                     Enum_AcpiNfitType::ACPI_NFIT_TYPE_MEMORY_MAP => {
                         let entry = iterator as *const ACPI_NFIT_MEMORY_MAP;
-                        fmt_nfit_region_mapping_structure(entry);
+                        parse_nfit_region_mapping_structure(entry);
                     }
                     Enum_AcpiNfitType::ACPI_NFIT_TYPE_INTERLEAVE => unreachable!(),
                     Enum_AcpiNfitType::ACPI_NFIT_TYPE_SMBIOS => unreachable!(),
                     Enum_AcpiNfitType::ACPI_NFIT_TYPE_CONTROL_REGION => {
                         let entry = iterator as *const ACPI_NFIT_CONTROL_REGION;
-                        fmt_nfit_control_region_structure(entry);
+                        parse_nfit_control_region_structure(entry);
                     }
                     Enum_AcpiNfitType::ACPI_NFIT_TYPE_DATA_REGION => unreachable!(),
                     Enum_AcpiNfitType::ACPI_NFIT_TYPE_FLUSH_ADDRESS => unreachable!(),
                     Enum_AcpiNfitType::ACPI_NFIT_TYPE_RESERVED => {
                         let entry = iterator as *const ACPI_NFIT_PLATFORM_CAPABILITIES;
-                        fmt_nfit_platform_capabilities_structure(entry);
+                        parse_nfit_platform_capabilities_structure(entry);
                     }
                     _ => unreachable!(),
                 }
@@ -566,7 +566,7 @@ fn from_slice_u8_to_Guid(slice: &[u8]) -> Guid {
     unsafe { core::mem::transmute(*p) }
 }
 
-fn fmt_nfit_spa_range_structure(entry: *const ACPI_NFIT_SYSTEM_ADDRESS) -> MemoryDescriptor {
+fn parse_nfit_spa_range_structure(entry: *const ACPI_NFIT_SYSTEM_ADDRESS) -> MemoryDescriptor {
     let mut mem_desc = MemoryDescriptor::default();
     unsafe {
         assert_eq!((*entry).Header.Type, 0);
@@ -604,7 +604,7 @@ fn fmt_nfit_spa_range_structure(entry: *const ACPI_NFIT_SYSTEM_ADDRESS) -> Memor
     }
 }
 
-fn fmt_nfit_region_mapping_structure(entry: *const ACPI_NFIT_MEMORY_MAP) {
+fn parse_nfit_region_mapping_structure(entry: *const ACPI_NFIT_MEMORY_MAP) {
     // To parse DeviceHandle
     const ACPI_NFIT_DIMM_NUMBER: u32 = 0xf; /* DIMM number within the memory channel */
     const ACPI_NFIT_MEMORY_CHANNEL: u32 = 0xf << 4; /* Memory channel number within the memory controller */
@@ -663,7 +663,7 @@ fn fmt_nfit_region_mapping_structure(entry: *const ACPI_NFIT_MEMORY_MAP) {
     }
 }
 
-fn fmt_nfit_control_region_structure(entry: *const ACPI_NFIT_CONTROL_REGION) {
+fn parse_nfit_control_region_structure(entry: *const ACPI_NFIT_CONTROL_REGION) {
     unsafe {
         assert_eq!((*entry).Header.Type, 4);
         debug!(
@@ -708,7 +708,7 @@ fn fmt_nfit_control_region_structure(entry: *const ACPI_NFIT_CONTROL_REGION) {
     }
 }
 
-fn fmt_nfit_platform_capabilities_structure(entry: *const ACPI_NFIT_PLATFORM_CAPABILITIES) {
+fn parse_nfit_platform_capabilities_structure(entry: *const ACPI_NFIT_PLATFORM_CAPABILITIES) {
     unsafe {
         const ACPI_NFIT_CACHE_FLUSH_ENABLED: u32 = 0x1;
         const ACPI_NFIT_CONTROLLER_FLUSH_ENABLED: u32 = 0x1 << 1;
