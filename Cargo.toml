@@ -17,6 +17,7 @@ log = "0.4"
 lazy_static = { version = "1.4", features = ["spin_no_std"] }
 cstr_core = { version = "0.2.3", default-features = false }
 bitflags = "1.2.1"
+uefi = "0.11.0"
 
 [target.'cfg(target_os = "none")'.dependencies]
 libacpica = "0.0.8"

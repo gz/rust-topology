@@ -15,6 +15,9 @@ use crate::acpi_types::*;
 use cstr_core::CStr;
 use log::{debug, info, trace};
 
+use uefi::table::boot::{MemoryAttribute, MemoryDescriptor, MemoryType};
+use x86::current::paging::BASE_PAGE_SIZE;
+
 const ACPI_FULL_PATHNAME: u32 = 0;
 const ACPI_TYPE_INTEGER: u32 = 0x01;
 
@@ -435,7 +438,9 @@ pub struct Struct_acpi_nfit_platform_capabilities {
 pub type ACPI_NFIT_PLATFORM_CAPABILITIES = Struct_acpi_nfit_platform_capabilities;
 
 // https://uefi.org/specs/ACPI/6.4/05_ACPI_Software_Programming_Model/ACPI_Software_Programming_Model.html#nvdimm-firmware-interface-table-nfit
-pub fn process_nfit() {
+pub fn process_nfit() -> Vec<MemoryDescriptor> {
+    let mut pmem_descriptors = Vec::with_capacity(8);
+
     unsafe {
         let nfit_handle = CStr::from_bytes_with_nul_unchecked(b"NFIT\0");
         let mut table_header: *mut ACPI_TABLE_HEADER = ptr::null_mut();
@@ -460,7 +465,8 @@ pub fn process_nfit() {
                 match entry_type {
                     Enum_AcpiNfitType::ACPI_NFIT_TYPE_SYSTEM_ADDRESS => {
                         let entry = iterator as *const ACPI_NFIT_SYSTEM_ADDRESS;
-                        fmt_nfit_spa_range_structure(entry);
+                        let mem_desc = fmt_nfit_spa_range_structure(entry);
+                        pmem_descriptors.push(mem_desc);
                     }
                     Enum_AcpiNfitType::ACPI_NFIT_TYPE_MEMORY_MAP => {
                         let entry = iterator as *const ACPI_NFIT_MEMORY_MAP;
@@ -485,84 +491,87 @@ pub fn process_nfit() {
         } else {
             debug!("ACPI NFIT Table not found.");
         }
+        pmem_descriptors
     }
+}
 
-    bitflags! {
-        pub struct MappingAttributes: u64 {
-            const EFI_MEMORY_UC = 0x00000001;
-        const EFI_MEMORY_WC = 0x00000002;
-        const EFI_MEMORY_WT = 0x00000004;
-        const EFI_MEMORY_WB = 0x00000008;
-        const EFI_MEMORY_UCE = 0x00000010;
-        const EFI_MEMORY_WP = 0x00001000;
-        const EFI_MEMORY_RP = 0x00002000;
-        const EFI_MEMORY_XP = 0x00004000;
-        const EFI_MEMORY_NV = 0x00008000;
-        const EFI_MEMORY_MORE_RELIABLE = 0x00010000;
-        const EFI_MEMORY_RO = 0x00020000;
-        const EFI_MEMORY_SP = 0x00040000;
-        }
+bitflags! {
+    pub struct MappingAttributes: u64 {
+        const EFI_MEMORY_UC = 0x00000001;
+    const EFI_MEMORY_WC = 0x00000002;
+    const EFI_MEMORY_WT = 0x00000004;
+    const EFI_MEMORY_WB = 0x00000008;
+    const EFI_MEMORY_UCE = 0x00000010;
+    const EFI_MEMORY_WP = 0x00001000;
+    const EFI_MEMORY_RP = 0x00002000;
+    const EFI_MEMORY_XP = 0x00004000;
+    const EFI_MEMORY_NV = 0x00008000;
+    const EFI_MEMORY_MORE_RELIABLE = 0x00010000;
+    const EFI_MEMORY_RO = 0x00020000;
+    const EFI_MEMORY_SP = 0x00040000;
     }
+}
 
-    /// Convert u64 to MappingAttributes.
-    impl From<u64> for MappingAttributes {
-        fn from(mode: u64) -> MappingAttributes {
-            MappingAttributes::from_bits_truncate(mode)
-        }
+/// Convert u64 to MappingAttributes.
+impl From<u64> for MappingAttributes {
+    fn from(mode: u64) -> MappingAttributes {
+        MappingAttributes::from_bits_truncate(mode)
     }
+}
 
-    /// Convert MappingAttributes to u64.
-    impl From<MappingAttributes> for u64 {
-        fn from(mode: MappingAttributes) -> u64 {
-            mode.bits()
-        }
+/// Convert MappingAttributes to u64.
+impl From<MappingAttributes> for u64 {
+    fn from(mode: MappingAttributes) -> u64 {
+        mode.bits()
     }
+}
 
-    struct Guid {
-        data1: u32,
-        data2: u16,
-        data3: u16,
-        index8: u8,
-        index9: u8,
-        index10: u8,
-        index11: u8,
-        index12: u8,
-        index13: u8,
-        index14: u8,
-        index15: u8,
+struct Guid {
+    data1: u32,
+    data2: u16,
+    data3: u16,
+    index8: u8,
+    index9: u8,
+    index10: u8,
+    index11: u8,
+    index12: u8,
+    index13: u8,
+    index14: u8,
+    index15: u8,
+}
+
+impl fmt::Debug for Guid {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{{ {:#X}, {:#X}, {:#X}, {:#X}, {:#X}, {:#X}, {:#X}, {:#X}, {:#X}, {:#X}, {:#X} }}",
+            self.data1,
+            self.data2,
+            self.data3,
+            self.index8,
+            self.index9,
+            self.index10,
+            self.index11,
+            self.index12,
+            self.index13,
+            self.index14,
+            self.index15
+        )
     }
+}
 
-    impl fmt::Debug for Guid {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(
-                f,
-                "{{ {:#X}, {:#X}, {:#X}, {:#X}, {:#X}, {:#X}, {:#X}, {:#X}, {:#X}, {:#X}, {:#X} }}",
-                self.data1,
-                self.data2,
-                self.data3,
-                self.index8,
-                self.index9,
-                self.index10,
-                self.index11,
-                self.index12,
-                self.index13,
-                self.index14,
-                self.index15
-            )
-        }
-    }
+fn from_slice_u8_to_Guid(slice: &[u8]) -> Guid {
+    let p: *const [u8; core::mem::size_of::<Guid>()] =
+        slice.as_ptr() as *const [u8; core::mem::size_of::<Guid>()];
+    unsafe { core::mem::transmute(*p) }
+}
 
-    fn from_slice_u8_to_Guid(slice: &[u8]) -> Guid {
-        let p: *const [u8; core::mem::size_of::<Guid>()] =
-            slice.as_ptr() as *const [u8; core::mem::size_of::<Guid>()];
-        unsafe { core::mem::transmute(*p) }
-    }
-
-    fn fmt_nfit_spa_range_structure(entry: *const ACPI_NFIT_SYSTEM_ADDRESS) {
-        unsafe {
-            assert_eq!((*entry).Header.Type, 0);
-            debug!(
-                "ACPI_NFIT_SYSTEM_ADDRESS - Type {}, Length {},
+fn fmt_nfit_spa_range_structure(entry: *const ACPI_NFIT_SYSTEM_ADDRESS) -> MemoryDescriptor {
+    let mut mem_desc = MemoryDescriptor::default();
+    unsafe {
+        assert_eq!((*entry).Header.Type, 0);
+        debug!(
+            "ACPI_NFIT_SYSTEM_ADDRESS - Type {}, Length {},
                 RangeIndex: {},
                 Flags: {},
                 ProximityDomain: {},
@@ -570,40 +579,52 @@ pub fn process_nfit() {
                 Address: 0x{:x},
                 Length: {} Bytes,
                 MemoryMapping: {:?}",
-                (*entry).Header.Type,
-                (*entry).Header.Length,
-                (*entry).RangeIndex,
-                (*entry).Flags,
-                (*entry).ProximityDomain,
-                from_slice_u8_to_Guid(&(*entry).RangeGuid),
-                (*entry).Address,
-                (*entry).Length,
-                MappingAttributes::from((*entry).MemoryMapping)
-            );
-        }
+            (*entry).Header.Type,
+            (*entry).Header.Length,
+            (*entry).RangeIndex,
+            (*entry).Flags,
+            (*entry).ProximityDomain,
+            from_slice_u8_to_Guid(&(*entry).RangeGuid),
+            (*entry).Address,
+            (*entry).Length,
+            MappingAttributes::from((*entry).MemoryMapping)
+        );
+
+        assert_eq!(
+            (*entry).Length % BASE_PAGE_SIZE as u64,
+            0,
+            "Not multiple of page-size."
+        );
+        mem_desc.ty = MemoryType::PERSISTENT_MEMORY;
+        mem_desc.phys_start = (*entry).Address;
+        mem_desc.page_count = (*entry).Length / BASE_PAGE_SIZE as u64;
+        mem_desc.att = MemoryAttribute::from_bits_truncate((*entry).MemoryMapping);
+
+        mem_desc
     }
+}
 
-    fn fmt_nfit_region_mapping_structure(entry: *const ACPI_NFIT_MEMORY_MAP) {
-        // To parse DeviceHandle
-        const ACPI_NFIT_DIMM_NUMBER: u32 = 0xf; /* DIMM number within the memory channel */
-        const ACPI_NFIT_MEMORY_CHANNEL: u32 = 0xf << 4; /* Memory channel number within the memory controller */
-        const ACPI_NFIT_MEM_CONTROLLER_ID: u32 = 0xf << 8; /* Memory controller ID within the socket */
-        const ACPI_NFIT_SOCKET_ID: u32 = 0xf << 12; /* Socket ID within the node controller, if any */
-        const ACPI_NFIT_NODE_CONTROLLER_ID: u32 = 0xfff << 16; /* Node controller ID, if any */
+fn fmt_nfit_region_mapping_structure(entry: *const ACPI_NFIT_MEMORY_MAP) {
+    // To parse DeviceHandle
+    const ACPI_NFIT_DIMM_NUMBER: u32 = 0xf; /* DIMM number within the memory channel */
+    const ACPI_NFIT_MEMORY_CHANNEL: u32 = 0xf << 4; /* Memory channel number within the memory controller */
+    const ACPI_NFIT_MEM_CONTROLLER_ID: u32 = 0xf << 8; /* Memory controller ID within the socket */
+    const ACPI_NFIT_SOCKET_ID: u32 = 0xf << 12; /* Socket ID within the node controller, if any */
+    const ACPI_NFIT_NODE_CONTROLLER_ID: u32 = 0xfff << 16; /* Node controller ID, if any */
 
-        // To parse Flags
-        const ACPI_NFIT_MEM_SAVE_FAILED: u32 = 0x1; /* 00: Last SAVE to Memory Device failed */
-        const ACPI_NFIT_MEM_RESTORE_FAILED: u32 = 0x1 << 1; /* 01: Last RESTORE from Memory Device failed */
-        const ACPI_NFIT_MEM_FLUSH_FAILED: u32 = 0x1 << 2; /* 02: Platform flush failed */
-        const ACPI_NFIT_MEM_NOT_ARMED: u32 = 0x1 << 3; /* 03: Memory Device is not armed */
-        const ACPI_NFIT_MEM_HEALTH_OBSERVED: u32 = 0x1 << 4; /* 04: Memory Device observed SMART/health events */
-        const ACPI_NFIT_MEM_HEALTH_ENABLED: u32 = 0x1 << 5; /* 05: SMART/health events enabled */
-        const ACPI_NFIT_MEM_MAP_FAILED: u32 = 0x1 << 6; /* 06: Mapping to SPA failed */
+    // To parse Flags
+    const ACPI_NFIT_MEM_SAVE_FAILED: u32 = 0x1; /* 00: Last SAVE to Memory Device failed */
+    const ACPI_NFIT_MEM_RESTORE_FAILED: u32 = 0x1 << 1; /* 01: Last RESTORE from Memory Device failed */
+    const ACPI_NFIT_MEM_FLUSH_FAILED: u32 = 0x1 << 2; /* 02: Platform flush failed */
+    const ACPI_NFIT_MEM_NOT_ARMED: u32 = 0x1 << 3; /* 03: Memory Device is not armed */
+    const ACPI_NFIT_MEM_HEALTH_OBSERVED: u32 = 0x1 << 4; /* 04: Memory Device observed SMART/health events */
+    const ACPI_NFIT_MEM_HEALTH_ENABLED: u32 = 0x1 << 5; /* 05: SMART/health events enabled */
+    const ACPI_NFIT_MEM_MAP_FAILED: u32 = 0x1 << 6; /* 06: Mapping to SPA failed */
 
-        unsafe {
-            assert_eq!((*entry).Header.Type, 1);
-            debug!(
-                "ACPI_NFIT_TYPE_MEMORY_MAP - Type {}, Length {}
+    unsafe {
+        assert_eq!((*entry).Header.Type, 1);
+        debug!(
+            "ACPI_NFIT_TYPE_MEMORY_MAP - Type {}, Length {}
                 NfitDeviceHandle: 0x{:x},
                 NfitDeviceHandle.DimmNumber: 0x{:x},
                 NfitDeviceHandle.MemChannel: 0x{:x},
@@ -620,33 +641,33 @@ pub fn process_nfit() {
                 InterleaveIndex: {},
                 InterleaveWays: {},
                 Flags: {}",
-                (*entry).Header.Type,
-                (*entry).Header.Length,
-                (*entry).DeviceHandle,
-                (*entry).DeviceHandle & ACPI_NFIT_DIMM_NUMBER,
-                (*entry).DeviceHandle & ACPI_NFIT_MEMORY_CHANNEL,
-                (*entry).DeviceHandle & ACPI_NFIT_MEM_CONTROLLER_ID,
-                (*entry).DeviceHandle & ACPI_NFIT_SOCKET_ID,
-                (*entry).DeviceHandle & ACPI_NFIT_NODE_CONTROLLER_ID,
-                (*entry).PhysicalId,
-                (*entry).RegionId,
-                (*entry).RangeIndex,
-                (*entry).RegionIndex,
-                (*entry).RegionSize,
-                (*entry).RegionOffset,
-                (*entry).Address,
-                (*entry).InterleaveIndex,
-                (*entry).InterleaveWays,
-                (*entry).Flags,
-            );
-        }
+            (*entry).Header.Type,
+            (*entry).Header.Length,
+            (*entry).DeviceHandle,
+            (*entry).DeviceHandle & ACPI_NFIT_DIMM_NUMBER,
+            (*entry).DeviceHandle & ACPI_NFIT_MEMORY_CHANNEL,
+            (*entry).DeviceHandle & ACPI_NFIT_MEM_CONTROLLER_ID,
+            (*entry).DeviceHandle & ACPI_NFIT_SOCKET_ID,
+            (*entry).DeviceHandle & ACPI_NFIT_NODE_CONTROLLER_ID,
+            (*entry).PhysicalId,
+            (*entry).RegionId,
+            (*entry).RangeIndex,
+            (*entry).RegionIndex,
+            (*entry).RegionSize,
+            (*entry).RegionOffset,
+            (*entry).Address,
+            (*entry).InterleaveIndex,
+            (*entry).InterleaveWays,
+            (*entry).Flags,
+        );
     }
+}
 
-    fn fmt_nfit_control_region_structure(entry: *const ACPI_NFIT_CONTROL_REGION) {
-        unsafe {
-            assert_eq!((*entry).Header.Type, 4);
-            debug!(
-                "ACPI_NFIT_TYPE_CONTROL_REGION - Type {}, Length {}
+fn fmt_nfit_control_region_structure(entry: *const ACPI_NFIT_CONTROL_REGION) {
+    unsafe {
+        assert_eq!((*entry).Header.Type, 4);
+        debug!(
+            "ACPI_NFIT_TYPE_CONTROL_REGION - Type {}, Length {}
                 RegionIndex: {},
                 VendorId: {},
                 DeviceId: {},
@@ -664,42 +685,41 @@ pub fn process_nfit() {
                 StatusOffset: {},
                 StatusSize: {},
                 Flags: {}",
-                (*entry).Header.Type,
-                (*entry).Header.Length,
-                (*entry).RegionIndex,
-                (*entry).VendorId,
-                (*entry).DeviceId,
-                (*entry).RevisionId,
-                (*entry).SubsystemVendorId,
-                (*entry).SubsystemDeviceId,
-                (*entry).SubsystemRevisionId,
-                (*entry).Reserved,
-                (*entry).SerialNumber,
-                (*entry).Code,
-                (*entry).Windows,
-                (*entry).WindowSize,
-                (*entry).CommandOffset,
-                (*entry).CommandSize,
-                (*entry).StatusOffset,
-                (*entry).StatusSize,
-                (*entry).Flags,
-            );
-        }
+            (*entry).Header.Type,
+            (*entry).Header.Length,
+            (*entry).RegionIndex,
+            (*entry).VendorId,
+            (*entry).DeviceId,
+            (*entry).RevisionId,
+            (*entry).SubsystemVendorId,
+            (*entry).SubsystemDeviceId,
+            (*entry).SubsystemRevisionId,
+            (*entry).Reserved,
+            (*entry).SerialNumber,
+            (*entry).Code,
+            (*entry).Windows,
+            (*entry).WindowSize,
+            (*entry).CommandOffset,
+            (*entry).CommandSize,
+            (*entry).StatusOffset,
+            (*entry).StatusSize,
+            (*entry).Flags,
+        );
     }
+}
 
-    fn fmt_nfit_platform_capabilities_structure(entry: *const ACPI_NFIT_PLATFORM_CAPABILITIES) {
-        unsafe {
-            const ACPI_NFIT_CACHE_FLUSH_ENABLED: u32 = 0x1;
-            const ACPI_NFIT_CONTROLLER_FLUSH_ENABLED: u32 = 0x1 << 1;
-            const ACPI_NFIT_HARDWARE_MIRRORING_CAPABLE: u32 = 0x1 << 2;
+fn fmt_nfit_platform_capabilities_structure(entry: *const ACPI_NFIT_PLATFORM_CAPABILITIES) {
+    unsafe {
+        const ACPI_NFIT_CACHE_FLUSH_ENABLED: u32 = 0x1;
+        const ACPI_NFIT_CONTROLLER_FLUSH_ENABLED: u32 = 0x1 << 1;
+        const ACPI_NFIT_HARDWARE_MIRRORING_CAPABLE: u32 = 0x1 << 2;
 
-            assert_eq!((*entry).Header.Type, 7);
-            debug!(
-                "Capability {{ eADR: {}, ADR: {}, Mirroring: {} }}",
-                (*entry).Capabilities & ACPI_NFIT_CACHE_FLUSH_ENABLED > 0,
-                (*entry).Capabilities & ACPI_NFIT_CONTROLLER_FLUSH_ENABLED > 0,
-                (*entry).Capabilities & ACPI_NFIT_HARDWARE_MIRRORING_CAPABLE > 0
-            );
-        }
+        assert_eq!((*entry).Header.Type, 7);
+        debug!(
+            "Capability {{ eADR: {}, ADR: {}, Mirroring: {} }}",
+            (*entry).Capabilities & ACPI_NFIT_CACHE_FLUSH_ENABLED > 0,
+            (*entry).Capabilities & ACPI_NFIT_CONTROLLER_FLUSH_ENABLED > 0,
+            (*entry).Capabilities & ACPI_NFIT_HARDWARE_MIRRORING_CAPABLE > 0
+        );
     }
 }
