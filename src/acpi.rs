@@ -472,14 +472,20 @@ pub fn process_nfit() -> Vec<MemoryDescriptor> {
                         let entry = iterator as *const ACPI_NFIT_MEMORY_MAP;
                         parse_nfit_region_mapping_structure(entry);
                     }
-                    Enum_AcpiNfitType::ACPI_NFIT_TYPE_INTERLEAVE => unreachable!(),
+                    Enum_AcpiNfitType::ACPI_NFIT_TYPE_INTERLEAVE => {
+                        let entry = iterator as *const ACPI_NFIT_INTERLEAVE;
+                        parse_nfit_interleave_structure(entry);
+                    }
                     Enum_AcpiNfitType::ACPI_NFIT_TYPE_SMBIOS => unreachable!(),
                     Enum_AcpiNfitType::ACPI_NFIT_TYPE_CONTROL_REGION => {
                         let entry = iterator as *const ACPI_NFIT_CONTROL_REGION;
                         parse_nfit_control_region_structure(entry);
                     }
                     Enum_AcpiNfitType::ACPI_NFIT_TYPE_DATA_REGION => unreachable!(),
-                    Enum_AcpiNfitType::ACPI_NFIT_TYPE_FLUSH_ADDRESS => unreachable!(),
+                    Enum_AcpiNfitType::ACPI_NFIT_TYPE_FLUSH_ADDRESS => {
+                        let entry = iterator as *const ACPI_NFIT_FLUSH_ADDRESS;
+                        parse_nfit_flush_hint_structure(entry);
+                    }
                     Enum_AcpiNfitType::ACPI_NFIT_TYPE_RESERVED => {
                         let entry = iterator as *const ACPI_NFIT_PLATFORM_CAPABILITIES;
                         parse_nfit_platform_capabilities_structure(entry);
@@ -566,6 +572,11 @@ fn from_slice_u8_to_Guid(slice: &[u8]) -> Guid {
     unsafe { core::mem::transmute(*p) }
 }
 
+// To parse DeviceHandle in ACPI_NFIT_MEMORY_MAP and ACPI_NFIT_FLUSH_ADDRESS subtables
+const ACPI_NFIT_DEVICE_HANDLE_4BIT_MASK: u32 = 0xf;
+const ACPI_NFIT_DEVICE_HANDLE_12BIT_MASK: u32 = 0xfff;
+
+// NFIT subtable type = 0x0
 fn parse_nfit_spa_range_structure(entry: *const ACPI_NFIT_SYSTEM_ADDRESS) -> MemoryDescriptor {
     let mut mem_desc = MemoryDescriptor::default();
     unsafe {
@@ -604,14 +615,8 @@ fn parse_nfit_spa_range_structure(entry: *const ACPI_NFIT_SYSTEM_ADDRESS) -> Mem
     }
 }
 
+// NFIT subtable type = 0x1
 fn parse_nfit_region_mapping_structure(entry: *const ACPI_NFIT_MEMORY_MAP) {
-    // To parse DeviceHandle
-    const ACPI_NFIT_DIMM_NUMBER: u32 = 0xf; /* DIMM number within the memory channel */
-    const ACPI_NFIT_MEMORY_CHANNEL: u32 = 0xf << 4; /* Memory channel number within the memory controller */
-    const ACPI_NFIT_MEM_CONTROLLER_ID: u32 = 0xf << 8; /* Memory controller ID within the socket */
-    const ACPI_NFIT_SOCKET_ID: u32 = 0xf << 12; /* Socket ID within the node controller, if any */
-    const ACPI_NFIT_NODE_CONTROLLER_ID: u32 = 0xfff << 16; /* Node controller ID, if any */
-
     // To parse Flags
     const ACPI_NFIT_MEM_SAVE_FAILED: u32 = 0x1; /* 00: Last SAVE to Memory Device failed */
     const ACPI_NFIT_MEM_RESTORE_FAILED: u32 = 0x1 << 1; /* 01: Last RESTORE from Memory Device failed */
@@ -644,11 +649,11 @@ fn parse_nfit_region_mapping_structure(entry: *const ACPI_NFIT_MEMORY_MAP) {
             (*entry).Header.Type,
             (*entry).Header.Length,
             (*entry).DeviceHandle,
-            (*entry).DeviceHandle & ACPI_NFIT_DIMM_NUMBER,
-            (*entry).DeviceHandle & ACPI_NFIT_MEMORY_CHANNEL,
-            (*entry).DeviceHandle & ACPI_NFIT_MEM_CONTROLLER_ID,
-            (*entry).DeviceHandle & ACPI_NFIT_SOCKET_ID,
-            (*entry).DeviceHandle & ACPI_NFIT_NODE_CONTROLLER_ID,
+            (*entry).DeviceHandle & ACPI_NFIT_DEVICE_HANDLE_4BIT_MASK,
+            ((*entry).DeviceHandle >> 4) & ACPI_NFIT_DEVICE_HANDLE_4BIT_MASK,
+            ((*entry).DeviceHandle >> 8) & ACPI_NFIT_DEVICE_HANDLE_4BIT_MASK,
+            ((*entry).DeviceHandle >> 12) & ACPI_NFIT_DEVICE_HANDLE_4BIT_MASK,
+            ((*entry).DeviceHandle >> 16) & ACPI_NFIT_DEVICE_HANDLE_12BIT_MASK,
             (*entry).PhysicalId,
             (*entry).RegionId,
             (*entry).RangeIndex,
@@ -663,6 +668,27 @@ fn parse_nfit_region_mapping_structure(entry: *const ACPI_NFIT_MEMORY_MAP) {
     }
 }
 
+// NFIT subtable type = 0x2
+fn parse_nfit_interleave_structure(entry: *const ACPI_NFIT_INTERLEAVE) {
+    unsafe {
+        assert_eq!((*entry).Header.Type, 2);
+        debug!(
+            "ACPI_NFIT_TYPE_INTERLEAVE - Type {}, Length {}
+            InterleaveStructureIndex: {:#x}
+            NumberOfLinesDescribed: {:#x}
+            LineOffset: {:#x}
+            LineSize: {:#x}",
+            (*entry).Header.Type,
+            (*entry).Header.Length,
+            (*entry).InterleaveIndex,
+            (*entry).LineCount,
+            (*entry).LineOffset[0],
+            (*entry).LineSize
+        );
+    }
+}
+
+// NFIT subtable type = 0x4
 fn parse_nfit_control_region_structure(entry: *const ACPI_NFIT_CONTROL_REGION) {
     unsafe {
         assert_eq!((*entry).Header.Type, 4);
@@ -708,6 +734,35 @@ fn parse_nfit_control_region_structure(entry: *const ACPI_NFIT_CONTROL_REGION) {
     }
 }
 
+// NFIT subtable type 0x6
+fn parse_nfit_flush_hint_structure(entry: *const ACPI_NFIT_FLUSH_ADDRESS) {
+    unsafe {
+        assert_eq!((*entry).Header.Type, 6);
+        debug!(
+            "ACPI_NFIT_TYPE_FLUSH_ADDRESS - Type {}, Length {}
+            NfitDeviceHandle: {:#x}
+            NfitDeviceHandle.DimmNumber: {:#x}
+            NfitDeviceHandle.MemChannel: {:#x}
+            NfitDeviceHandle.MemControllerId: {:#x}
+            NfitDeviceHandle.SocketId: {:#x}
+            NfitDeviceHandle.NodeControllerId: {:#x}
+            NumberOfFlushHintAddresses: {:#x}
+            FlushHintAddress 0: {:#x}",
+            (*entry).Header.Type,
+            (*entry).Header.Length,
+            (*entry).DeviceHandle,
+            (*entry).DeviceHandle & ACPI_NFIT_DEVICE_HANDLE_4BIT_MASK,
+            ((*entry).DeviceHandle >> 4) & ACPI_NFIT_DEVICE_HANDLE_4BIT_MASK,
+            ((*entry).DeviceHandle >> 8) & ACPI_NFIT_DEVICE_HANDLE_4BIT_MASK,
+            ((*entry).DeviceHandle >> 12) & ACPI_NFIT_DEVICE_HANDLE_4BIT_MASK,
+            ((*entry).DeviceHandle >> 16) & ACPI_NFIT_DEVICE_HANDLE_12BIT_MASK,
+            (*entry).HintCount,
+            (*entry).HintAddress[0],
+        );
+    }
+}
+
+// NFIT subtable type = 0x7
 fn parse_nfit_platform_capabilities_structure(entry: *const ACPI_NFIT_PLATFORM_CAPABILITIES) {
     unsafe {
         const ACPI_NFIT_CACHE_FLUSH_ENABLED: u32 = 0x1;
