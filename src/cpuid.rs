@@ -27,27 +27,42 @@ fn cpuid_bits_needed(count: u8) -> u8 {
     cnt
 }
 
-/// Given APIC ID, figure out package, core and thread ID.
-pub fn get_topology_from_apic_id(xapic_id: u8) -> (ThreadId, CoreId, PackageId) {
+fn get_processor_limits() -> (u8, u8) {
     let cpuid = x86::cpuid::CpuId::new();
 
-    // Determine the maximum processors count
-    let max_logical_processor_ids = cpuid
-        .get_feature_info()
-        .map_or_else(|| 0, |finfo| finfo.max_logical_processor_ids());
+    // This is for AMD processors:
+    if let Some(info) = cpuid.get_processor_capacity_feature_info() {
+        let max_logical_processor_ids = info.num_phys_threads();
+        let mut smt_max_cores_for_package = core::cmp::max(1, info.apic_id_size());
+        if info.apic_id_size() == 0 {
+            // Not clear why this is set to 0 in qemu (if you run with 1 virtual core), but it is.
+            log::debug!("Unable to determine smt_max_cores_for_package assume 1");
+        }
 
-    // Determine max cores per package
-    let smt_max_cores_for_package: u8 = cpuid.get_cache_parameters().map_or_else(
-        || 0,
-        |cparams| {
-            for (ecx, cache) in cparams.enumerate() {
-                if ecx == 0 {
-                    return cache.max_cores_for_package() as u8;
-                }
+        return (max_logical_processor_ids.try_into().unwrap(), smt_max_cores_for_package.try_into().unwrap());
+    }
+    // This is for Intel processors:
+    else if let Some(cparams) = cpuid.get_cache_parameters() {
+        let max_logical_processor_ids = cpuid
+            .get_feature_info()
+            .map_or_else(|| 1, |finfo| finfo.max_logical_processor_ids());
+
+        let mut smt_max_cores_for_package: u8 = 1;
+        for (ecx, cache) in cparams.enumerate() {
+            if ecx == 0 {
+                smt_max_cores_for_package = cache.max_cores_for_package() as u8;
             }
-            0
-        },
-    );
+        }
+
+        return (max_logical_processor_ids as u8, smt_max_cores_for_package as u8);
+    }
+
+    unreachable!("Example doesn't support this CPU")
+}
+
+/// Given APIC ID, figure out package, core and thread ID.
+pub fn get_topology_from_apic_id(xapic_id: u8) -> (ThreadId, CoreId, PackageId) {
+    let (max_logical_processor_ids, smt_max_cores_for_package) = get_processor_limits();
 
     let smt_mask_width: u8 = cpuid_bits_needed(
         (max_logical_processor_ids.next_power_of_two() / smt_max_cores_for_package) - 1,
