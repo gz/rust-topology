@@ -33,7 +33,7 @@ fn get_processor_limits() -> (u8, u8) {
     // This is for AMD processors:
     if let Some(info) = cpuid.get_processor_capacity_feature_info() {
         let max_logical_processor_ids = info.num_phys_threads();
-        let mut smt_max_cores_for_package = core::cmp::max(1, info.apic_id_size());
+        let smt_max_cores_for_package = core::cmp::max(1, info.apic_id_size());
         if info.apic_id_size() == 0 {
             // Not clear why this is set to 0 in qemu (if you run with 1 virtual core), but it is.
             log::debug!("Unable to determine smt_max_cores_for_package assume 1");
