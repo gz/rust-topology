@@ -32,14 +32,15 @@ fn get_processor_limits() -> (u8, u8) {
 
     // This is for AMD processors:
     if let Some(info) = cpuid.get_processor_capacity_feature_info() {
+        // This is how I think it's supposed to work, but doesn't quite work,
+        // that's why we use the x2apic code path to determine topology:
         let max_logical_processor_ids = info.num_phys_threads();
-        let smt_max_cores_for_package = core::cmp::max(1, info.apic_id_size());
-        if info.apic_id_size() == 0 {
-            // Not clear why this is set to 0 in qemu (if you run with 1 virtual core), but it is.
-            log::debug!("Unable to determine smt_max_cores_for_package assume 1");
-        }
+        let smt_max_cores_for_package = info.maximum_logical_processors();
 
-        return (max_logical_processor_ids.try_into().unwrap(), smt_max_cores_for_package.try_into().unwrap());
+        return (
+            max_logical_processor_ids.try_into().unwrap(),
+            smt_max_cores_for_package.try_into().unwrap(),
+        );
     }
     // This is for Intel processors:
     else if let Some(cparams) = cpuid.get_cache_parameters() {
@@ -47,14 +48,17 @@ fn get_processor_limits() -> (u8, u8) {
             .get_feature_info()
             .map_or_else(|| 1, |finfo| finfo.max_logical_processor_ids());
 
-        let mut smt_max_cores_for_package: u8 = 1;
+        let mut smt_max_cores_for_package: u8 = 0;
         for (ecx, cache) in cparams.enumerate() {
             if ecx == 0 {
                 smt_max_cores_for_package = cache.max_cores_for_package() as u8;
             }
         }
 
-        return (max_logical_processor_ids as u8, smt_max_cores_for_package as u8);
+        return (
+            max_logical_processor_ids as u8,
+            smt_max_cores_for_package as u8,
+        );
     }
 
     unreachable!("Example doesn't support this CPU")

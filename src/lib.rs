@@ -112,7 +112,15 @@ impl Thread {
         apic: LocalApic,
         node_id: Option<NodeId>,
     ) -> Thread {
-        let (thread_id, core_id, package_id) = cpuid::get_topology_from_apic_id(apic.apic_id);
+        // We use `get_topology_from_x2apic_id` which should still work (in most
+        // cases) if it holds that all lower x2apic ids are identical to apic
+        // ids below 256. I can't seem to get to the right AMD topology with the
+        // regular xapic cpuid code and unfortunately I can't find much
+        // documentation on how to do it for AMD with the 0x8000_0008 leaf.
+        // So this will have to do:
+        let (thread_id, core_id, package_id) =
+            cpuid::get_topology_from_x2apic_id(apic.apic_id as u32);
+
         Thread {
             id: global_id,
             apic: ApicThreadInfo::Apic(apic),
