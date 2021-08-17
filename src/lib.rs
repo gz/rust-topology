@@ -24,16 +24,16 @@ use alloc::vec::Vec;
 #[cfg(target_os = "none")]
 use core::convert::TryInto;
 use core::fmt;
-use uefi::table::boot::MemoryDescriptor;
 
 use lazy_static::lazy_static;
 use x86::apic::ApicId;
 
 #[cfg(target_os = "none")]
 use acpi::{process_madt, process_msct, process_nfit, process_srat};
+pub use acpi_types::MemoryType;
 use acpi_types::{
     IoApic, LocalApic, LocalX2Apic, MaximumProximityDomainInfo, MaximumSystemCharacteristics,
-    MemoryAffinity,
+    MemoryAffinity, MemoryDescriptor,
 };
 
 /// A system global ID for a CPU.

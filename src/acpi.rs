@@ -15,7 +15,6 @@ use crate::acpi_types::*;
 use cstr_core::CStr;
 use log::{debug, info, trace, warn};
 
-use uefi::table::boot::{MemoryAttribute, MemoryDescriptor, MemoryType};
 use x86::current::paging::BASE_PAGE_SIZE;
 
 const ACPI_FULL_PATHNAME: u32 = 0;
@@ -505,37 +504,6 @@ pub fn process_nfit() -> Vec<MemoryDescriptor> {
     }
 }
 
-bitflags! {
-    pub struct MappingAttributes: u64 {
-        const EFI_MEMORY_UC = 0x00000001;
-        const EFI_MEMORY_WC = 0x00000002;
-        const EFI_MEMORY_WT = 0x00000004;
-        const EFI_MEMORY_WB = 0x00000008;
-        const EFI_MEMORY_UCE = 0x00000010;
-        const EFI_MEMORY_WP = 0x00001000;
-        const EFI_MEMORY_RP = 0x00002000;
-        const EFI_MEMORY_XP = 0x00004000;
-        const EFI_MEMORY_NV = 0x00008000;
-        const EFI_MEMORY_MORE_RELIABLE = 0x00010000;
-        const EFI_MEMORY_RO = 0x00020000;
-        const EFI_MEMORY_SP = 0x00040000;
-    }
-}
-
-/// Convert u64 to MappingAttributes.
-impl From<u64> for MappingAttributes {
-    fn from(mode: u64) -> MappingAttributes {
-        MappingAttributes::from_bits_truncate(mode)
-    }
-}
-
-/// Convert MappingAttributes to u64.
-impl From<MappingAttributes> for u64 {
-    fn from(mode: MappingAttributes) -> u64 {
-        mode.bits()
-    }
-}
-
 #[repr(C, align(8))]
 struct Guid {
     data1: u32,
@@ -585,7 +553,6 @@ const ACPI_NFIT_DEVICE_HANDLE_12BIT_MASK: u32 = 0xfff;
 
 // NFIT subtable type = 0x0
 fn parse_nfit_spa_range_structure(entry: *const ACPI_NFIT_SYSTEM_ADDRESS) -> MemoryDescriptor {
-    let mut mem_desc = MemoryDescriptor::default();
     unsafe {
         assert_eq!((*entry).Header.Type, 0);
         debug!(
@@ -605,7 +572,7 @@ fn parse_nfit_spa_range_structure(entry: *const ACPI_NFIT_SYSTEM_ADDRESS) -> Mem
             Guid::from(&(*entry).RangeGuid),
             (*entry).Address,
             (*entry).Length,
-            MappingAttributes::from((*entry).MemoryMapping)
+            MemoryAttribute::from((*entry).MemoryMapping)
         );
 
         assert_eq!(
@@ -613,12 +580,14 @@ fn parse_nfit_spa_range_structure(entry: *const ACPI_NFIT_SYSTEM_ADDRESS) -> Mem
             0,
             "Not multiple of page-size."
         );
-        mem_desc.ty = MemoryType::PERSISTENT_MEMORY;
-        mem_desc.phys_start = (*entry).Address;
-        mem_desc.page_count = (*entry).Length / BASE_PAGE_SIZE as u64;
-        mem_desc.att = MemoryAttribute::from_bits_truncate((*entry).MemoryMapping);
-
-        mem_desc
+        MemoryDescriptor {
+            ty: MemoryType::PERSISTENT_MEMORY,
+            padding: 0,
+            phys_start: (*entry).Address,
+            virt_start: 0,
+            page_count: (*entry).Length / BASE_PAGE_SIZE as u64,
+            att: MemoryAttribute::from((*entry).MemoryMapping),
+        }
     }
 }
 
