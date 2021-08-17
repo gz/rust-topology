@@ -135,11 +135,11 @@ impl fmt::Debug for MemoryAffinity {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "MemoryAffinity {{ {:#x} -- {:#x}, node#{}, Non-volatile: {} }}",
+            "MemoryAffinity {{ {:#x} -- {:#x}, node#{}, {} }}",
             self.start(),
             self.end(),
             self.proximity_domain,
-            self.is_non_volatile()
+            if self.is_non_volatile() { "nvm" } else { "" },
         )
     }
 }

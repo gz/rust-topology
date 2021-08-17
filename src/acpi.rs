@@ -13,7 +13,7 @@ use core::alloc::Layout;
 use crate::acpi_types::*;
 
 use cstr_core::CStr;
-use log::{debug, info, trace};
+use log::{debug, info, trace, warn};
 
 use uefi::table::boot::{MemoryAttribute, MemoryDescriptor, MemoryType};
 use x86::current::paging::BASE_PAGE_SIZE;
@@ -454,7 +454,7 @@ pub fn process_nfit() -> Vec<MemoryDescriptor> {
             let nfit_tbl_ptr = table_header as *const ACPI_TABLE_NFIT;
             let nfit_table_len = (*nfit_tbl_ptr).Header.Length as usize;
             let nfit_table_end = (nfit_tbl_ptr as *const c_void).add(nfit_table_len);
-            info!("Discoverd NVDIMM(s), table length {:?}", nfit_table_len);
+            debug!("Discoverd NVDIMM(s), table length {:?}", nfit_table_len);
 
             let mut iterator =
                 (nfit_tbl_ptr as *const c_void).add(mem::size_of::<ACPI_TABLE_NFIT>());
@@ -470,25 +470,29 @@ pub fn process_nfit() -> Vec<MemoryDescriptor> {
                     }
                     Enum_AcpiNfitType::ACPI_NFIT_TYPE_MEMORY_MAP => {
                         let entry = iterator as *const ACPI_NFIT_MEMORY_MAP;
-                        parse_nfit_region_mapping_structure(entry);
+                        log_nfit_region_mapping_structure(entry);
                     }
                     Enum_AcpiNfitType::ACPI_NFIT_TYPE_INTERLEAVE => {
                         let entry = iterator as *const ACPI_NFIT_INTERLEAVE;
-                        parse_nfit_interleave_structure(entry);
+                        log_nfit_interleave_structure(entry);
                     }
-                    Enum_AcpiNfitType::ACPI_NFIT_TYPE_SMBIOS => unreachable!(),
+                    Enum_AcpiNfitType::ACPI_NFIT_TYPE_SMBIOS => {
+                        warn!("Unable to handle ACPI_NFIT_SMBIOS table")
+                    }
                     Enum_AcpiNfitType::ACPI_NFIT_TYPE_CONTROL_REGION => {
                         let entry = iterator as *const ACPI_NFIT_CONTROL_REGION;
-                        parse_nfit_control_region_structure(entry);
+                        log_nfit_control_region_structure(entry);
                     }
-                    Enum_AcpiNfitType::ACPI_NFIT_TYPE_DATA_REGION => unreachable!(),
+                    Enum_AcpiNfitType::ACPI_NFIT_TYPE_DATA_REGION => {
+                        warn!("Unable to handle ACPI_NFIT_DATA_REGION table")
+                    }
                     Enum_AcpiNfitType::ACPI_NFIT_TYPE_FLUSH_ADDRESS => {
                         let entry = iterator as *const ACPI_NFIT_FLUSH_ADDRESS;
-                        parse_nfit_flush_hint_structure(entry);
+                        log_nfit_flush_hint_structure(entry);
                     }
                     Enum_AcpiNfitType::ACPI_NFIT_TYPE_RESERVED => {
                         let entry = iterator as *const ACPI_NFIT_PLATFORM_CAPABILITIES;
-                        parse_nfit_platform_capabilities_structure(entry);
+                        log_nfit_platform_capabilities_structure(entry);
                     }
                     _ => unreachable!(),
                 }
@@ -504,17 +508,17 @@ pub fn process_nfit() -> Vec<MemoryDescriptor> {
 bitflags! {
     pub struct MappingAttributes: u64 {
         const EFI_MEMORY_UC = 0x00000001;
-    const EFI_MEMORY_WC = 0x00000002;
-    const EFI_MEMORY_WT = 0x00000004;
-    const EFI_MEMORY_WB = 0x00000008;
-    const EFI_MEMORY_UCE = 0x00000010;
-    const EFI_MEMORY_WP = 0x00001000;
-    const EFI_MEMORY_RP = 0x00002000;
-    const EFI_MEMORY_XP = 0x00004000;
-    const EFI_MEMORY_NV = 0x00008000;
-    const EFI_MEMORY_MORE_RELIABLE = 0x00010000;
-    const EFI_MEMORY_RO = 0x00020000;
-    const EFI_MEMORY_SP = 0x00040000;
+        const EFI_MEMORY_WC = 0x00000002;
+        const EFI_MEMORY_WT = 0x00000004;
+        const EFI_MEMORY_WB = 0x00000008;
+        const EFI_MEMORY_UCE = 0x00000010;
+        const EFI_MEMORY_WP = 0x00001000;
+        const EFI_MEMORY_RP = 0x00002000;
+        const EFI_MEMORY_XP = 0x00004000;
+        const EFI_MEMORY_NV = 0x00008000;
+        const EFI_MEMORY_MORE_RELIABLE = 0x00010000;
+        const EFI_MEMORY_RO = 0x00020000;
+        const EFI_MEMORY_SP = 0x00040000;
     }
 }
 
@@ -532,6 +536,7 @@ impl From<MappingAttributes> for u64 {
     }
 }
 
+#[repr(C, align(8))]
 struct Guid {
     data1: u32,
     data2: u16,
@@ -566,10 +571,12 @@ impl fmt::Debug for Guid {
     }
 }
 
-fn from_slice_u8_to_Guid(slice: &[u8]) -> Guid {
-    let p: *const [u8; core::mem::size_of::<Guid>()] =
-        slice.as_ptr() as *const [u8; core::mem::size_of::<Guid>()];
-    unsafe { core::mem::transmute(*p) }
+impl From<&[u8; 16]> for Guid {
+    fn from(slice: &[u8; 16]) -> Guid {
+        let p: *const [u8; core::mem::size_of::<Guid>()] =
+            slice.as_ptr() as *const [u8; core::mem::size_of::<Guid>()];
+        unsafe { core::mem::transmute(*p) }
+    }
 }
 
 // To parse DeviceHandle in ACPI_NFIT_MEMORY_MAP and ACPI_NFIT_FLUSH_ADDRESS subtables
@@ -595,7 +602,7 @@ fn parse_nfit_spa_range_structure(entry: *const ACPI_NFIT_SYSTEM_ADDRESS) -> Mem
             (*entry).RangeIndex,
             (*entry).Flags,
             (*entry).ProximityDomain,
-            from_slice_u8_to_Guid(&(*entry).RangeGuid),
+            Guid::from(&(*entry).RangeGuid),
             (*entry).Address,
             (*entry).Length,
             MappingAttributes::from((*entry).MemoryMapping)
@@ -616,7 +623,7 @@ fn parse_nfit_spa_range_structure(entry: *const ACPI_NFIT_SYSTEM_ADDRESS) -> Mem
 }
 
 // NFIT subtable type = 0x1
-fn parse_nfit_region_mapping_structure(entry: *const ACPI_NFIT_MEMORY_MAP) {
+fn log_nfit_region_mapping_structure(entry: *const ACPI_NFIT_MEMORY_MAP) {
     // To parse Flags
     const ACPI_NFIT_MEM_SAVE_FAILED: u32 = 0x1; /* 00: Last SAVE to Memory Device failed */
     const ACPI_NFIT_MEM_RESTORE_FAILED: u32 = 0x1 << 1; /* 01: Last RESTORE from Memory Device failed */
@@ -669,7 +676,7 @@ fn parse_nfit_region_mapping_structure(entry: *const ACPI_NFIT_MEMORY_MAP) {
 }
 
 // NFIT subtable type = 0x2
-fn parse_nfit_interleave_structure(entry: *const ACPI_NFIT_INTERLEAVE) {
+fn log_nfit_interleave_structure(entry: *const ACPI_NFIT_INTERLEAVE) {
     unsafe {
         assert_eq!((*entry).Header.Type, 2);
         debug!(
@@ -689,7 +696,7 @@ fn parse_nfit_interleave_structure(entry: *const ACPI_NFIT_INTERLEAVE) {
 }
 
 // NFIT subtable type = 0x4
-fn parse_nfit_control_region_structure(entry: *const ACPI_NFIT_CONTROL_REGION) {
+fn log_nfit_control_region_structure(entry: *const ACPI_NFIT_CONTROL_REGION) {
     unsafe {
         assert_eq!((*entry).Header.Type, 4);
         debug!(
@@ -735,7 +742,7 @@ fn parse_nfit_control_region_structure(entry: *const ACPI_NFIT_CONTROL_REGION) {
 }
 
 // NFIT subtable type 0x6
-fn parse_nfit_flush_hint_structure(entry: *const ACPI_NFIT_FLUSH_ADDRESS) {
+fn log_nfit_flush_hint_structure(entry: *const ACPI_NFIT_FLUSH_ADDRESS) {
     unsafe {
         assert_eq!((*entry).Header.Type, 6);
         debug!(
@@ -763,7 +770,7 @@ fn parse_nfit_flush_hint_structure(entry: *const ACPI_NFIT_FLUSH_ADDRESS) {
 }
 
 // NFIT subtable type = 0x7
-fn parse_nfit_platform_capabilities_structure(entry: *const ACPI_NFIT_PLATFORM_CAPABILITIES) {
+fn log_nfit_platform_capabilities_structure(entry: *const ACPI_NFIT_PLATFORM_CAPABILITIES) {
     unsafe {
         const ACPI_NFIT_CACHE_FLUSH_ENABLED: u32 = 0x1;
         const ACPI_NFIT_CONTROLLER_FLUSH_ENABLED: u32 = 0x1 << 1;
