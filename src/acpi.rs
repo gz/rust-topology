@@ -504,7 +504,7 @@ pub fn process_nfit() -> Vec<MemoryDescriptor> {
     }
 }
 
-#[repr(C, align(8))]
+#[repr(C, packed)]
 struct Guid {
     data1: u32,
     data2: u16,
@@ -541,6 +541,10 @@ impl fmt::Debug for Guid {
 
 impl From<&[u8; 16]> for Guid {
     fn from(slice: &[u8; 16]) -> Guid {
+        // Check size and alignment for Guid
+        static_assertions::assert_eq_size!([u8; 16], Guid);
+        static_assertions::assert_eq_align!([u8; 16], Guid);
+
         let p: *const [u8; core::mem::size_of::<Guid>()] =
             slice.as_ptr() as *const [u8; core::mem::size_of::<Guid>()];
         unsafe { core::mem::transmute(*p) }
