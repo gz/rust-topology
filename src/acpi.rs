@@ -424,18 +424,6 @@ pub fn process_msct() -> (
     }
 }
 
-//TODO: Move this to acpica-sys repo.
-#[repr(C, packed)]
-#[derive(Clone, Copy)]
-pub struct Struct_acpi_nfit_platform_capabilities {
-    pub Header: ACPI_NFIT_HEADER,
-    pub HighestValidCapability: UINT8,
-    pub Reserved: [UINT8; 3usize],
-    pub Capabilities: UINT32,
-    pub Reserved1: UINT32,
-}
-pub type ACPI_NFIT_PLATFORM_CAPABILITIES = Struct_acpi_nfit_platform_capabilities;
-
 // https://uefi.org/specs/ACPI/6.4/05_ACPI_Software_Programming_Model/ACPI_Software_Programming_Model.html#nvdimm-firmware-interface-table-nfit
 pub fn process_nfit() -> Vec<MemoryDescriptor> {
     let mut pmem_descriptors = Vec::with_capacity(8);
@@ -459,38 +447,38 @@ pub fn process_nfit() -> Vec<MemoryDescriptor> {
                 (nfit_tbl_ptr as *const c_void).add(mem::size_of::<ACPI_TABLE_NFIT>());
             while iterator < nfit_table_end {
                 let header = iterator as *const ACPI_NFIT_HEADER;
-                let entry_type: Enum_AcpiNfitType = mem::transmute((*header).Type as i32);
+                let entry_type: AcpiNfitType = mem::transmute((*header).Type as i32);
 
                 match entry_type {
-                    Enum_AcpiNfitType::ACPI_NFIT_TYPE_SYSTEM_ADDRESS => {
+                    AcpiNfitType::ACPI_NFIT_TYPE_SYSTEM_ADDRESS => {
                         let entry = iterator as *const ACPI_NFIT_SYSTEM_ADDRESS;
                         let mem_desc = parse_nfit_spa_range_structure(entry);
                         pmem_descriptors.push(mem_desc);
                     }
-                    Enum_AcpiNfitType::ACPI_NFIT_TYPE_MEMORY_MAP => {
+                    AcpiNfitType::ACPI_NFIT_TYPE_MEMORY_MAP => {
                         let entry = iterator as *const ACPI_NFIT_MEMORY_MAP;
                         log_nfit_region_mapping_structure(entry);
                     }
-                    Enum_AcpiNfitType::ACPI_NFIT_TYPE_INTERLEAVE => {
+                    AcpiNfitType::ACPI_NFIT_TYPE_INTERLEAVE => {
                         let entry = iterator as *const ACPI_NFIT_INTERLEAVE;
                         log_nfit_interleave_structure(entry);
                     }
-                    Enum_AcpiNfitType::ACPI_NFIT_TYPE_SMBIOS => {
+                    AcpiNfitType::ACPI_NFIT_TYPE_SMBIOS => {
                         warn!("Unable to handle ACPI_NFIT_SMBIOS table")
                     }
-                    Enum_AcpiNfitType::ACPI_NFIT_TYPE_CONTROL_REGION => {
+                    AcpiNfitType::ACPI_NFIT_TYPE_CONTROL_REGION => {
                         let entry = iterator as *const ACPI_NFIT_CONTROL_REGION;
                         log_nfit_control_region_structure(entry);
                     }
-                    Enum_AcpiNfitType::ACPI_NFIT_TYPE_DATA_REGION => {
+                    AcpiNfitType::ACPI_NFIT_TYPE_DATA_REGION => {
                         warn!("Unable to handle ACPI_NFIT_DATA_REGION table")
                     }
-                    Enum_AcpiNfitType::ACPI_NFIT_TYPE_FLUSH_ADDRESS => {
+                    AcpiNfitType::ACPI_NFIT_TYPE_FLUSH_ADDRESS => {
                         let entry = iterator as *const ACPI_NFIT_FLUSH_ADDRESS;
                         log_nfit_flush_hint_structure(entry);
                     }
-                    Enum_AcpiNfitType::ACPI_NFIT_TYPE_RESERVED => {
-                        let entry = iterator as *const ACPI_NFIT_PLATFORM_CAPABILITIES;
+                    AcpiNfitType::ACPI_NFIT_TYPE_CAPABILITIES => {
+                        let entry = iterator as *const ACPI_NFIT_CAPABILITIES;
                         log_nfit_platform_capabilities_structure(entry);
                     }
                     _ => unreachable!(),
@@ -597,15 +585,6 @@ fn parse_nfit_spa_range_structure(entry: *const ACPI_NFIT_SYSTEM_ADDRESS) -> Mem
 
 // NFIT subtable type = 0x1
 fn log_nfit_region_mapping_structure(entry: *const ACPI_NFIT_MEMORY_MAP) {
-    // To parse Flags
-    const ACPI_NFIT_MEM_SAVE_FAILED: u32 = 0x1; /* 00: Last SAVE to Memory Device failed */
-    const ACPI_NFIT_MEM_RESTORE_FAILED: u32 = 0x1 << 1; /* 01: Last RESTORE from Memory Device failed */
-    const ACPI_NFIT_MEM_FLUSH_FAILED: u32 = 0x1 << 2; /* 02: Platform flush failed */
-    const ACPI_NFIT_MEM_NOT_ARMED: u32 = 0x1 << 3; /* 03: Memory Device is not armed */
-    const ACPI_NFIT_MEM_HEALTH_OBSERVED: u32 = 0x1 << 4; /* 04: Memory Device observed SMART/health events */
-    const ACPI_NFIT_MEM_HEALTH_ENABLED: u32 = 0x1 << 5; /* 05: SMART/health events enabled */
-    const ACPI_NFIT_MEM_MAP_FAILED: u32 = 0x1 << 6; /* 06: Mapping to SPA failed */
-
     unsafe {
         assert_eq!((*entry).Header.Type, 1);
         debug!(
@@ -743,7 +722,7 @@ fn log_nfit_flush_hint_structure(entry: *const ACPI_NFIT_FLUSH_ADDRESS) {
 }
 
 // NFIT subtable type = 0x7
-fn log_nfit_platform_capabilities_structure(entry: *const ACPI_NFIT_PLATFORM_CAPABILITIES) {
+fn log_nfit_platform_capabilities_structure(entry: *const ACPI_NFIT_CAPABILITIES) {
     unsafe {
         const ACPI_NFIT_CACHE_FLUSH_ENABLED: u32 = 0x1;
         const ACPI_NFIT_CONTROLLER_FLUSH_ENABLED: u32 = 0x1 << 1;
