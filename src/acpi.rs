@@ -117,11 +117,10 @@ pub fn process_srat() -> (
     let mut mem_affinity = Vec::with_capacity(8);
 
     unsafe {
-        let srat_handle = CStr::from_bytes_with_nul_unchecked(b"SRAT\0");
         let mut table_header: *mut ACPI_TABLE_HEADER = ptr::null_mut();
 
         let ret = AcpiGetTable(
-            srat_handle.as_ptr() as *mut cstr_core::c_char,
+            ACPI_SIG_SRAT.as_ptr() as *mut cstr_core::c_char,
             1,
             &mut table_header,
         );
@@ -262,11 +261,10 @@ pub fn process_madt() -> (Vec<LocalApic>, Vec<LocalX2Apic>, Vec<IoApic>) {
     let mut io_apics = Vec::with_capacity(24);
 
     unsafe {
-        let madt_handle = CStr::from_bytes_with_nul_unchecked(b"APIC\0");
         let mut table_header: *mut ACPI_TABLE_HEADER = ptr::null_mut();
 
         let ret = AcpiGetTable(
-            madt_handle.as_ptr() as *mut cstr_core::c_char,
+            ACPI_SIG_MADT.as_ptr() as *mut cstr_core::c_char,
             1,
             &mut table_header,
         );
@@ -371,11 +369,10 @@ pub fn process_msct() -> (
     Vec<MaximumProximityDomainInfo>,
 ) {
     unsafe {
-        let msct_handle = CStr::from_bytes_with_nul_unchecked(b"MSCT\0");
         let mut table_header: *mut ACPI_TABLE_HEADER = ptr::null_mut();
 
         let ret = AcpiGetTable(
-            msct_handle.as_ptr() as *mut cstr_core::c_char,
+            ACPI_SIG_MSCT.as_ptr() as *mut cstr_core::c_char,
             1,
             &mut table_header,
         );
@@ -429,11 +426,10 @@ pub fn process_nfit() -> Vec<MemoryDescriptor> {
     let mut pmem_descriptors = Vec::with_capacity(8);
 
     unsafe {
-        let nfit_handle = CStr::from_bytes_with_nul_unchecked(b"NFIT\0");
         let mut table_header: *mut ACPI_TABLE_HEADER = ptr::null_mut();
 
         let ret = AcpiGetTable(
-            nfit_handle.as_ptr() as *mut cstr_core::c_char,
+            ACPI_SIG_NFIT.as_ptr() as *mut cstr_core::c_char,
             1,
             &mut table_header,
         );
