@@ -34,7 +34,7 @@ fn acpi_get_integer(handle: ACPI_HANDLE, name: *const i8, reg: &mut ACPI_INTEGER
         );
 
         if ret == AE_OK {
-            *reg = (*object.Integer()).Value;
+            *reg = object.Integer.Value;
         }
         ret
     }
@@ -138,10 +138,10 @@ pub fn process_srat() -> (
                 (srat_tbl_ptr as *const c_void).add(mem::size_of::<ACPI_TABLE_SRAT>());
             while iterator < srat_table_end {
                 let entry: *const ACPI_SUBTABLE_HEADER = iterator as *const ACPI_SUBTABLE_HEADER;
-                let entry_type: Enum_AcpiSratType = mem::transmute((*entry).Type as i32);
+                let entry_type: AcpiSratType = mem::transmute((*entry).Type as i32);
 
                 match entry_type {
-                    Enum_AcpiSratType::ACPI_SRAT_TYPE_CPU_AFFINITY => {
+                    AcpiSratType::ACPI_SRAT_TYPE_CPU_AFFINITY => {
                         const ACPI_SRAT_ENABLED: u32 = 0x1;
 
                         let local_apic_affinity: *const ACPI_SRAT_CPU_AFFINITY =
@@ -171,7 +171,7 @@ pub fn process_srat() -> (
 
                         debug_assert_eq!((*entry).Length, 16);
                     }
-                    Enum_AcpiSratType::ACPI_SRAT_TYPE_MEMORY_AFFINITY => {
+                    AcpiSratType::ACPI_SRAT_TYPE_MEMORY_AFFINITY => {
                         const ACPI_SRAT_ENABLED: u32 = 0x1;
                         const ACPI_SRAT_HOTPLUGGABLE: u32 = 0x1 << 1;
                         const ACPI_SRAT_NON_VOLATILE: u32 = 0x1 << 2;
@@ -203,7 +203,7 @@ pub fn process_srat() -> (
 
                         debug_assert_eq!((*entry).Length, 40);
                     }
-                    Enum_AcpiSratType::ACPI_SRAT_TYPE_X2APIC_CPU_AFFINITY => {
+                    AcpiSratType::ACPI_SRAT_TYPE_X2APIC_CPU_AFFINITY => {
                         const ACPI_SRAT_ENABLED: u32 = 0x1;
 
                         let x2apic_affinity_entry: *const ACPI_SRAT_X2APIC_CPU_AFFINITY =
@@ -282,12 +282,12 @@ pub fn process_madt() -> (Vec<LocalApic>, Vec<LocalX2Apic>, Vec<IoApic>) {
         let mut iterator = (madt_tbl_ptr as *const c_void).add(mem::size_of::<ACPI_TABLE_MADT>());
         while iterator < madt_table_end {
             let entry: *const ACPI_SUBTABLE_HEADER = iterator as *const ACPI_SUBTABLE_HEADER;
-            let entry_type: Enum_AcpiMadtType = mem::transmute((*entry).Type as i32);
+            let entry_type: AcpiMadtType = mem::transmute((*entry).Type as i32);
 
             const ACPI_MADT_ENABLED: u32 = 0x1;
 
             match entry_type {
-                Enum_AcpiMadtType::ACPI_MADT_TYPE_LOCAL_APIC => {
+                AcpiMadtType::ACPI_MADT_TYPE_LOCAL_APIC => {
                     let local_apic: *const ACPI_MADT_LOCAL_APIC =
                         entry as *const ACPI_MADT_LOCAL_APIC;
 
@@ -305,7 +305,7 @@ pub fn process_madt() -> (Vec<LocalApic>, Vec<LocalX2Apic>, Vec<IoApic>) {
                         cores.push(core);
                     }
                 }
-                Enum_AcpiMadtType::ACPI_MADT_TYPE_LOCAL_X2APIC => {
+                AcpiMadtType::ACPI_MADT_TYPE_LOCAL_X2APIC => {
                     let local_x2apic: *const ACPI_MADT_LOCAL_X2APIC =
                         entry as *const ACPI_MADT_LOCAL_X2APIC;
 
@@ -323,7 +323,7 @@ pub fn process_madt() -> (Vec<LocalApic>, Vec<LocalX2Apic>, Vec<IoApic>) {
                         x2apic_cores.push(core);
                     }
                 }
-                Enum_AcpiMadtType::ACPI_MADT_TYPE_IO_APIC => {
+                AcpiMadtType::ACPI_MADT_TYPE_IO_APIC => {
                     let io_apic: *const ACPI_MADT_IO_APIC = entry as *const ACPI_MADT_IO_APIC;
 
                     let apic = IoApic {
