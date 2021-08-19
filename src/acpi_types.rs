@@ -1,5 +1,5 @@
 //! ACPI types which are parsed from tables (see also `acpi.rs`).
-#[allow(non_camel_case_types)]
+#![allow(non_camel_case_types)]
 use bitflags::*;
 use core::fmt;
 
