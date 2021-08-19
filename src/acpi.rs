@@ -535,10 +535,6 @@ impl From<&[u8; 16]> for Guid {
     }
 }
 
-// To parse DeviceHandle in ACPI_NFIT_MEMORY_MAP and ACPI_NFIT_FLUSH_ADDRESS subtables
-const ACPI_NFIT_DEVICE_HANDLE_4BIT_MASK: u32 = 0xf;
-const ACPI_NFIT_DEVICE_HANDLE_12BIT_MASK: u32 = 0xfff;
-
 // NFIT subtable type = 0x0
 fn parse_nfit_spa_range_structure(entry: *const ACPI_NFIT_SYSTEM_ADDRESS) -> MemoryDescriptor {
     unsafe {
@@ -604,11 +600,11 @@ fn log_nfit_region_mapping_structure(entry: *const ACPI_NFIT_MEMORY_MAP) {
             (*entry).Header.Type,
             (*entry).Header.Length,
             (*entry).DeviceHandle,
-            (*entry).DeviceHandle & ACPI_NFIT_DEVICE_HANDLE_4BIT_MASK,
-            ((*entry).DeviceHandle >> 4) & ACPI_NFIT_DEVICE_HANDLE_4BIT_MASK,
-            ((*entry).DeviceHandle >> 8) & ACPI_NFIT_DEVICE_HANDLE_4BIT_MASK,
-            ((*entry).DeviceHandle >> 12) & ACPI_NFIT_DEVICE_HANDLE_4BIT_MASK,
-            ((*entry).DeviceHandle >> 16) & ACPI_NFIT_DEVICE_HANDLE_12BIT_MASK,
+            (*entry).DeviceHandle & ACPI_NFIT_DIMM_NUMBER_OFFSET,
+            (*entry).DeviceHandle & ACPI_NFIT_CHANNEL_NUMBER_OFFSET,
+            (*entry).DeviceHandle & ACPI_NFIT_MEMORY_ID_OFFSET,
+            (*entry).DeviceHandle & ACPI_NFIT_SOCKET_ID_OFFSET,
+            (*entry).DeviceHandle & ACPI_NFIT_NODE_ID_OFFSET,
             (*entry).PhysicalId,
             (*entry).RegionId,
             (*entry).RangeIndex,
@@ -706,11 +702,11 @@ fn log_nfit_flush_hint_structure(entry: *const ACPI_NFIT_FLUSH_ADDRESS) {
             (*entry).Header.Type,
             (*entry).Header.Length,
             (*entry).DeviceHandle,
-            (*entry).DeviceHandle & ACPI_NFIT_DEVICE_HANDLE_4BIT_MASK,
-            ((*entry).DeviceHandle >> 4) & ACPI_NFIT_DEVICE_HANDLE_4BIT_MASK,
-            ((*entry).DeviceHandle >> 8) & ACPI_NFIT_DEVICE_HANDLE_4BIT_MASK,
-            ((*entry).DeviceHandle >> 12) & ACPI_NFIT_DEVICE_HANDLE_4BIT_MASK,
-            ((*entry).DeviceHandle >> 16) & ACPI_NFIT_DEVICE_HANDLE_12BIT_MASK,
+            (*entry).DeviceHandle & ACPI_NFIT_DIMM_NUMBER_OFFSET,
+            (*entry).DeviceHandle & ACPI_NFIT_CHANNEL_NUMBER_OFFSET,
+            (*entry).DeviceHandle & ACPI_NFIT_MEMORY_ID_OFFSET,
+            (*entry).DeviceHandle & ACPI_NFIT_SOCKET_ID_OFFSET,
+            (*entry).DeviceHandle & ACPI_NFIT_NODE_ID_OFFSET,
             (*entry).HintCount,
             (*entry).HintAddress[0],
         );
@@ -720,16 +716,12 @@ fn log_nfit_flush_hint_structure(entry: *const ACPI_NFIT_FLUSH_ADDRESS) {
 // NFIT subtable type = 0x7
 fn log_nfit_platform_capabilities_structure(entry: *const ACPI_NFIT_CAPABILITIES) {
     unsafe {
-        const ACPI_NFIT_CACHE_FLUSH_ENABLED: u32 = 0x1;
-        const ACPI_NFIT_CONTROLLER_FLUSH_ENABLED: u32 = 0x1 << 1;
-        const ACPI_NFIT_HARDWARE_MIRRORING_CAPABLE: u32 = 0x1 << 2;
-
         assert_eq!((*entry).Header.Type, 7);
         debug!(
             "Capability {{ eADR: {}, ADR: {}, Mirroring: {} }}",
-            (*entry).Capabilities & ACPI_NFIT_CACHE_FLUSH_ENABLED > 0,
-            (*entry).Capabilities & ACPI_NFIT_CONTROLLER_FLUSH_ENABLED > 0,
-            (*entry).Capabilities & ACPI_NFIT_HARDWARE_MIRRORING_CAPABLE > 0
+            (*entry).Capabilities & ACPI_NFIT_CAPABILITY_CACHE_FLUSH > 0,
+            (*entry).Capabilities & ACPI_NFIT_CAPABILITY_MEM_FLUSH > 0,
+            (*entry).Capabilities & ACPI_NFIT_CAPABILITY_MEM_MIRRORING > 0
         );
     }
 }
