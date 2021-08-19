@@ -1,6 +1,7 @@
 //! ACPI parsing functionality for relevant topology information.
 use libacpica::*;
 
+use core::fmt;
 use core::mem;
 use core::ptr;
 
@@ -11,7 +12,9 @@ use core::alloc::Layout;
 use crate::acpi_types::*;
 
 use cstr_core::CStr;
-use log::{debug, info, trace};
+use log::{debug, info, trace, warn};
+
+use x86::current::paging::BASE_PAGE_SIZE;
 
 const ACPI_FULL_PATHNAME: u32 = 0;
 const ACPI_TYPE_INTEGER: u32 = 0x01;
@@ -113,11 +116,10 @@ pub fn process_srat() -> (
     let mut mem_affinity = Vec::with_capacity(8);
 
     unsafe {
-        let srat_handle = CStr::from_bytes_with_nul_unchecked(b"SRAT\0");
         let mut table_header: *mut ACPI_TABLE_HEADER = ptr::null_mut();
 
         let ret = AcpiGetTable(
-            srat_handle.as_ptr() as *mut cstr_core::c_char,
+            ACPI_SIG_SRAT.as_ptr() as *mut cstr_core::c_char,
             1,
             &mut table_header,
         );
@@ -258,11 +260,10 @@ pub fn process_madt() -> (Vec<LocalApic>, Vec<LocalX2Apic>, Vec<IoApic>) {
     let mut io_apics = Vec::with_capacity(24);
 
     unsafe {
-        let madt_handle = CStr::from_bytes_with_nul_unchecked(b"APIC\0");
         let mut table_header: *mut ACPI_TABLE_HEADER = ptr::null_mut();
 
         let ret = AcpiGetTable(
-            madt_handle.as_ptr() as *mut cstr_core::c_char,
+            ACPI_SIG_MADT.as_ptr() as *mut cstr_core::c_char,
             1,
             &mut table_header,
         );
@@ -367,11 +368,10 @@ pub fn process_msct() -> (
     Vec<MaximumProximityDomainInfo>,
 ) {
     unsafe {
-        let msct_handle = CStr::from_bytes_with_nul_unchecked(b"MSCT\0");
         let mut table_header: *mut ACPI_TABLE_HEADER = ptr::null_mut();
 
         let ret = AcpiGetTable(
-            msct_handle.as_ptr() as *mut cstr_core::c_char,
+            ACPI_SIG_MSCT.as_ptr() as *mut cstr_core::c_char,
             1,
             &mut table_header,
         );
@@ -417,5 +417,317 @@ pub fn process_msct() -> (
         }
 
         (msc, max_prox_domains)
+    }
+}
+
+/// This macro reads an unaligned variable in a struct.
+macro_rules! read {
+    ($address: expr) => {
+        ptr::addr_of!($address).read_unaligned()
+    };
+}
+
+// https://uefi.org/specs/ACPI/6.4/05_ACPI_Software_Programming_Model/ACPI_Software_Programming_Model.html#nvdimm-firmware-interface-table-nfit
+pub fn process_nfit() -> Vec<MemoryDescriptor> {
+    let mut pmem_descriptors = Vec::with_capacity(8);
+
+    unsafe {
+        let mut table_header: *mut ACPI_TABLE_HEADER = ptr::null_mut();
+
+        let ret = AcpiGetTable(
+            ACPI_SIG_NFIT.as_ptr() as *mut cstr_core::c_char,
+            1,
+            &mut table_header,
+        );
+        if ret == AE_OK {
+            let nfit_tbl_ptr = table_header as *const ACPI_TABLE_NFIT;
+            let nfit_table_len = (*nfit_tbl_ptr).Header.Length as usize;
+            let nfit_table_end = (nfit_tbl_ptr as *const c_void).add(nfit_table_len);
+            debug!("Discoverd NVDIMM(s), table length {:?}", nfit_table_len);
+
+            let mut iterator =
+                (nfit_tbl_ptr as *const c_void).add(mem::size_of::<ACPI_TABLE_NFIT>());
+            while iterator < nfit_table_end {
+                let header = iterator as *const ACPI_NFIT_HEADER;
+                let entry_type: AcpiNfitType = mem::transmute((*header).Type as i32);
+
+                match entry_type {
+                    AcpiNfitType::ACPI_NFIT_TYPE_SYSTEM_ADDRESS => {
+                        let entry = iterator as *const ACPI_NFIT_SYSTEM_ADDRESS;
+                        let mem_desc = parse_nfit_spa_range_structure(entry);
+                        pmem_descriptors.push(mem_desc);
+                    }
+                    AcpiNfitType::ACPI_NFIT_TYPE_MEMORY_MAP => {
+                        let entry = iterator as *const ACPI_NFIT_MEMORY_MAP;
+                        log_nfit_region_mapping_structure(entry);
+                    }
+                    AcpiNfitType::ACPI_NFIT_TYPE_INTERLEAVE => {
+                        let entry = iterator as *const ACPI_NFIT_INTERLEAVE;
+                        log_nfit_interleave_structure(entry);
+                    }
+                    AcpiNfitType::ACPI_NFIT_TYPE_SMBIOS => {
+                        warn!("Unable to handle ACPI_NFIT_SMBIOS table")
+                    }
+                    AcpiNfitType::ACPI_NFIT_TYPE_CONTROL_REGION => {
+                        let entry = iterator as *const ACPI_NFIT_CONTROL_REGION;
+                        log_nfit_control_region_structure(entry);
+                    }
+                    AcpiNfitType::ACPI_NFIT_TYPE_DATA_REGION => {
+                        warn!("Unable to handle ACPI_NFIT_DATA_REGION table")
+                    }
+                    AcpiNfitType::ACPI_NFIT_TYPE_FLUSH_ADDRESS => {
+                        let entry = iterator as *const ACPI_NFIT_FLUSH_ADDRESS;
+                        log_nfit_flush_hint_structure(entry);
+                    }
+                    AcpiNfitType::ACPI_NFIT_TYPE_CAPABILITIES => {
+                        let entry = iterator as *const ACPI_NFIT_CAPABILITIES;
+                        log_nfit_platform_capabilities_structure(entry);
+                    }
+                    _ => unreachable!(),
+                }
+                iterator = iterator.add((*header).Length as usize);
+            }
+        } else {
+            debug!("ACPI NFIT Table not found.");
+        }
+        pmem_descriptors
+    }
+}
+
+#[repr(C, packed)]
+struct Guid {
+    data1: u32,
+    data2: u16,
+    data3: u16,
+    index8: u8,
+    index9: u8,
+    index10: u8,
+    index11: u8,
+    index12: u8,
+    index13: u8,
+    index14: u8,
+    index15: u8,
+}
+
+impl fmt::Debug for Guid {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{{ {:#X}, {:#X}, {:#X}, {:#X}, {:#X}, {:#X}, {:#X}, {:#X}, {:#X}, {:#X}, {:#X} }}",
+            unsafe { read!(self.data1) },
+            unsafe { read!(self.data2) },
+            unsafe { read!(self.data3) },
+            self.index8,
+            self.index9,
+            self.index10,
+            self.index11,
+            self.index12,
+            self.index13,
+            self.index14,
+            self.index15
+        )
+    }
+}
+
+impl From<&[u8; 16]> for Guid {
+    fn from(slice: &[u8; 16]) -> Guid {
+        // Check size and alignment for Guid
+        static_assertions::assert_eq_size!([u8; 16], Guid);
+        static_assertions::assert_eq_align!([u8; 16], Guid);
+
+        let p: *const [u8; core::mem::size_of::<Guid>()] =
+            slice.as_ptr() as *const [u8; core::mem::size_of::<Guid>()];
+        unsafe { core::mem::transmute(*p) }
+    }
+}
+
+// NFIT subtable type = 0x0
+fn parse_nfit_spa_range_structure(entry: *const ACPI_NFIT_SYSTEM_ADDRESS) -> MemoryDescriptor {
+    unsafe {
+        assert_eq!(read!((*entry).Header.Type), 0);
+        debug!(
+            "ACPI_NFIT_SYSTEM_ADDRESS - Type {}, Length {},
+                RangeIndex: {},
+                Flags: {},
+                ProximityDomain: {},
+                RangeGuid: {:x?},
+                Address: 0x{:x},
+                Length: {} Bytes,
+                MemoryMapping: {:?}",
+            read!((*entry).Header.Type),
+            read!((*entry).Header.Length),
+            read!((*entry).RangeIndex),
+            read!((*entry).Flags),
+            read!((*entry).ProximityDomain),
+            Guid::from(&(*entry).RangeGuid),
+            read!((*entry).Address),
+            read!((*entry).Length),
+            MemoryAttribute::from((*entry).MemoryMapping)
+        );
+
+        assert_eq!(
+            (*entry).Length % BASE_PAGE_SIZE as u64,
+            0,
+            "Not multiple of page-size."
+        );
+        MemoryDescriptor {
+            ty: MemoryType::PERSISTENT_MEMORY,
+            padding: 0,
+            phys_start: (*entry).Address,
+            virt_start: 0,
+            page_count: (*entry).Length / BASE_PAGE_SIZE as u64,
+            att: MemoryAttribute::from((*entry).MemoryMapping),
+        }
+    }
+}
+
+// NFIT subtable type = 0x1
+fn log_nfit_region_mapping_structure(entry: *const ACPI_NFIT_MEMORY_MAP) {
+    unsafe {
+        assert_eq!(read!((*entry).Header.Type), 1);
+        debug!(
+            "ACPI_NFIT_TYPE_MEMORY_MAP - Type {}, Length {}
+                NfitDeviceHandle: 0x{:x},
+                NfitDeviceHandle.DimmNumber: 0x{:x},
+                NfitDeviceHandle.MemChannel: 0x{:x},
+                NfitDeviceHandle.MemControllerId: 0x{:x},
+                NfitDeviceHandle.SocketId: 0x{:x},
+                NfitDeviceHandle.NodeControllerId: 0x{:x},
+                PhysicalId: {},
+                RegionId: {},
+                RangeIndex: {},
+                RegionIndex: {},
+                RegionSize: {},
+                RegionOffset: {},
+                Address: {},
+                InterleaveIndex: {},
+                InterleaveWays: {},
+                Flags: {}",
+            read!((*entry).Header.Type),
+            read!((*entry).Header.Length),
+            read!((*entry).DeviceHandle),
+            (*entry).DeviceHandle & ACPI_NFIT_DIMM_NUMBER_OFFSET,
+            (*entry).DeviceHandle & ACPI_NFIT_CHANNEL_NUMBER_OFFSET,
+            (*entry).DeviceHandle & ACPI_NFIT_MEMORY_ID_OFFSET,
+            (*entry).DeviceHandle & ACPI_NFIT_SOCKET_ID_OFFSET,
+            (*entry).DeviceHandle & ACPI_NFIT_NODE_ID_OFFSET,
+            read!((*entry).PhysicalId),
+            read!((*entry).RegionId),
+            read!((*entry).RangeIndex),
+            read!((*entry).RegionIndex),
+            read!((*entry).RegionSize),
+            read!((*entry).RegionOffset),
+            read!((*entry).Address),
+            read!((*entry).InterleaveIndex),
+            read!((*entry).InterleaveWays),
+            read!((*entry).Flags),
+        );
+    }
+}
+
+// NFIT subtable type = 0x2
+fn log_nfit_interleave_structure(entry: *const ACPI_NFIT_INTERLEAVE) {
+    unsafe {
+        assert_eq!(read!((*entry).Header.Type), 2);
+        debug!(
+            "ACPI_NFIT_TYPE_INTERLEAVE - Type {}, Length {}
+            InterleaveStructureIndex: {:#x}
+            NumberOfLinesDescribed: {:#x}
+            LineOffset: {:#x}
+            LineSize: {:#x}",
+            read!((*entry).Header.Type),
+            read!((*entry).Header.Length),
+            read!((*entry).InterleaveIndex),
+            read!((*entry).LineCount),
+            read!((*entry).LineOffset[0]),
+            read!((*entry).LineSize)
+        );
+    }
+}
+
+// NFIT subtable type = 0x4
+fn log_nfit_control_region_structure(entry: *const ACPI_NFIT_CONTROL_REGION) {
+    unsafe {
+        assert_eq!(read!((*entry).Header.Type), 4);
+        debug!(
+            "ACPI_NFIT_TYPE_CONTROL_REGION - Type {}, Length {}
+                RegionIndex: {},
+                VendorId: {},
+                DeviceId: {},
+                RevisionId: {},
+                SubsystemVendorId: {},
+                SubsystemDeviceId: {},
+                SubsystemRevisionId: {},
+                Reserved: {:?},
+                SerialNumber: {},
+                Code: {},
+                Windows: {},
+                WindowSize: {},
+                CommandOffset: {},
+                CommandSize: {},
+                StatusOffset: {},
+                StatusSize: {},
+                Flags: {}",
+            read!((*entry).Header.Type),
+            read!((*entry).Header.Length),
+            read!((*entry).RegionIndex),
+            read!((*entry).VendorId),
+            read!((*entry).DeviceId),
+            read!((*entry).RevisionId),
+            read!((*entry).SubsystemVendorId),
+            read!((*entry).SubsystemDeviceId),
+            read!((*entry).SubsystemRevisionId),
+            (*entry).Reserved,
+            read!((*entry).SerialNumber),
+            read!((*entry).Code),
+            read!((*entry).Windows),
+            read!((*entry).WindowSize),
+            read!((*entry).CommandOffset),
+            read!((*entry).CommandSize),
+            read!((*entry).StatusOffset),
+            read!((*entry).StatusSize),
+            read!((*entry).Flags),
+        );
+    }
+}
+
+// NFIT subtable type 0x6
+fn log_nfit_flush_hint_structure(entry: *const ACPI_NFIT_FLUSH_ADDRESS) {
+    unsafe {
+        assert_eq!(read!((*entry).Header.Type), 6);
+        debug!(
+            "ACPI_NFIT_TYPE_FLUSH_ADDRESS - Type {}, Length {}
+            NfitDeviceHandle: {:#x}
+            NfitDeviceHandle.DimmNumber: {:#x}
+            NfitDeviceHandle.MemChannel: {:#x}
+            NfitDeviceHandle.MemControllerId: {:#x}
+            NfitDeviceHandle.SocketId: {:#x}
+            NfitDeviceHandle.NodeControllerId: {:#x}
+            NumberOfFlushHintAddresses: {:#x}
+            FlushHintAddress 0: {:#x}",
+            read!((*entry).Header.Type),
+            read!((*entry).Header.Length),
+            read!((*entry).DeviceHandle),
+            (*entry).DeviceHandle & ACPI_NFIT_DIMM_NUMBER_OFFSET,
+            (*entry).DeviceHandle & ACPI_NFIT_CHANNEL_NUMBER_OFFSET,
+            (*entry).DeviceHandle & ACPI_NFIT_MEMORY_ID_OFFSET,
+            (*entry).DeviceHandle & ACPI_NFIT_SOCKET_ID_OFFSET,
+            (*entry).DeviceHandle & ACPI_NFIT_NODE_ID_OFFSET,
+            read!((*entry).HintCount),
+            read!((*entry).HintAddress[0]),
+        );
+    }
+}
+
+// NFIT subtable type = 0x7
+fn log_nfit_platform_capabilities_structure(entry: *const ACPI_NFIT_CAPABILITIES) {
+    unsafe {
+        assert_eq!(read!((*entry).Header.Type), 7);
+        debug!(
+            "Capability {{ eADR: {}, ADR: {}, Mirroring: {} }}",
+            (*entry).Capabilities & ACPI_NFIT_CAPABILITY_CACHE_FLUSH > 0,
+            (*entry).Capabilities & ACPI_NFIT_CAPABILITY_MEM_FLUSH > 0,
+            (*entry).Capabilities & ACPI_NFIT_CAPABILITY_MEM_MIRRORING > 0
+        );
     }
 }

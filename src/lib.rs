@@ -29,10 +29,11 @@ use lazy_static::lazy_static;
 use x86::apic::ApicId;
 
 #[cfg(target_os = "none")]
-use acpi::{process_madt, process_msct, process_srat};
+use acpi::{process_madt, process_msct, process_nfit, process_srat};
+pub use acpi_types::MemoryType;
 use acpi_types::{
     IoApic, LocalApic, LocalX2Apic, MaximumProximityDomainInfo, MaximumSystemCharacteristics,
-    MemoryAffinity,
+    MemoryAffinity, MemoryDescriptor,
 };
 
 /// A system global ID for a CPU.
@@ -352,6 +353,7 @@ lazy_static! {
         let (mut local_apics, mut local_x2apics, ioapics) = process_madt();
         let (mut core_affinity, mut x2apic_affinity, memory_affinity) = process_srat();
         let (max_proximity_info, prox_domain_info) = process_msct();
+        let pmem_descriptors = process_nfit();
 
         local_apics.sort_unstable_by(|a, b| a.apic_id.cmp(&b.apic_id));
         local_x2apics.sort_unstable_by(|a, b| a.apic_id.cmp(&b.apic_id));
@@ -441,6 +443,7 @@ lazy_static! {
             nodes,
             ioapics,
             memory_affinity,
+            pmem_descriptors,
             max_proximity_info,
             prox_domain_info
         )
@@ -459,6 +462,7 @@ lazy_static! {
         let memory_affinity = Vec::new();
         let max_proximity_info = MaximumSystemCharacteristics::default();
         let prox_domain_info = Vec::new();
+        let pmem_descriptors = Vec::new();
 
         // Make Thread objects out of APIC MADT entries:
         let mut threads: Vec<Thread> = Vec::new();
@@ -508,6 +512,7 @@ lazy_static! {
             nodes,
             ioapics,
             memory_affinity,
+            pmem_descriptors,
             max_proximity_info,
             prox_domain_info
         )
@@ -523,6 +528,7 @@ pub struct MachineInfo {
     packages: Vec<Package>,
     nodes: Vec<Node>,
     memory_affinity: Vec<MemoryAffinity>,
+    pmem_descriptors: Vec<MemoryDescriptor>,
     io_apics: Vec<IoApic>,
     max_proximity_info: MaximumSystemCharacteristics,
     proximity_domains: Vec<MaximumProximityDomainInfo>,
@@ -537,6 +543,7 @@ impl MachineInfo {
         nodes: Vec<Node>,
         io_apics: Vec<IoApic>,
         memory_affinity: Vec<MemoryAffinity>,
+        pmem_descriptors: Vec<MemoryDescriptor>,
         max_proximity_info: MaximumSystemCharacteristics,
         proximity_domains: Vec<MaximumProximityDomainInfo>,
     ) -> MachineInfo {
@@ -546,6 +553,7 @@ impl MachineInfo {
             packages,
             nodes,
             memory_affinity,
+            pmem_descriptors,
             io_apics,
             max_proximity_info,
             proximity_domains,
@@ -646,6 +654,10 @@ impl MachineInfo {
     /// Return an iterator over all I/O APICs in the system.
     pub fn io_apics(&'static self) -> impl Iterator<Item = &IoApic> {
         self.io_apics.iter()
+    }
+
+    pub fn persistent_memory(&'static self) -> impl Iterator<Item = &'static MemoryDescriptor> {
+        MACHINE_TOPOLOGY.pmem_descriptors.iter()
     }
 }
 

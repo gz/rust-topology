@@ -1,5 +1,6 @@
 //! ACPI types which are parsed from tables (see also `acpi.rs`).
-
+#![allow(non_camel_case_types)]
+use bitflags::*;
 use core::fmt;
 
 /// The I/O APIC structure declares which global system interrupts are uniquely
@@ -85,6 +86,10 @@ impl MemoryAffinity {
         self.base_address + self.length
     }
 
+    pub fn is_non_volatile(&self) -> bool {
+        self.non_volatile
+    }
+
     /// Splits a provided memory range into three sub-ranges (a, b, c).
     /// where
     ///  - a is the sub-range of input that comes before this MemoryAffinity.
@@ -131,10 +136,11 @@ impl fmt::Debug for MemoryAffinity {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "MemoryAffinity {{ {:#x} -- {:#x}, node#{} }}",
+            "MemoryAffinity {{ {:#x} -- {:#x}, node#{} {} }}",
             self.start(),
             self.end(),
-            self.proximity_domain
+            self.proximity_domain,
+            if self.is_non_volatile() { "nvm" } else { "" },
         )
     }
 }
@@ -240,4 +246,116 @@ pub struct MaximumProximityDomainInfo {
     /// Maximum Memory Capacity (size in bytes) of the Proximity Domains specified in the range.
     /// A value of 0 means that the proximity domains do not contain memory
     pub memory_capacity: u64,
+}
+
+/// The type of a memory range.
+///
+/// UEFI allows firmwares and operating systems to introduce new memory types
+/// in the 0x70000000..0xFFFFFFFF range. Therefore, we don't know the full set
+/// of memory types at compile time, and it is _not_ safe to model this C enum
+/// as a Rust enum.
+#[derive(Debug, Copy, Clone, PartialEq)]
+#[repr(C)]
+pub enum MemoryType {
+    /// This enum variant is not used.
+    RESERVED = 0,
+    /// The code portions of a loaded UEFI application.
+    LOADER_CODE = 1,
+    /// The data portions of a loaded UEFI applications,
+    /// as well as any memory allocated by it.
+    LOADER_DATA = 2,
+    /// Code of the boot drivers.
+    ///
+    /// Can be reused after OS is loaded.
+    BOOT_SERVICES_CODE = 3,
+    /// Memory used to store boot drivers' data.
+    ///
+    /// Can be reused after OS is loaded.
+    BOOT_SERVICES_DATA = 4,
+    /// Runtime drivers' code.
+    RUNTIME_SERVICES_CODE = 5,
+    /// Runtime services' code.
+    RUNTIME_SERVICES_DATA = 6,
+    /// Free usable memory.
+    CONVENTIONAL = 7,
+    /// Memory in which errors have been detected.
+    UNUSABLE = 8,
+    /// Memory that holds ACPI tables.
+    /// Can be reclaimed after they are parsed.
+    ACPI_RECLAIM = 9,
+    /// Firmware-reserved addresses.
+    ACPI_NON_VOLATILE = 10,
+    /// A region used for memory-mapped I/O.
+    MMIO = 11,
+    /// Address space used for memory-mapped port I/O.
+    MMIO_PORT_SPACE = 12,
+    /// Address space which is part of the processor.
+    PAL_CODE = 13,
+    /// Memory region which is usable and is also non-volatile.
+    PERSISTENT_MEMORY = 14,
+}
+
+/// A structure describing a region of memory.
+#[derive(Debug, Copy, Clone)]
+#[repr(C)]
+pub struct MemoryDescriptor {
+    /// Type of memory occupying this range.
+    pub ty: MemoryType,
+    /// Skip 4 bytes as UEFI declares items in structs should be naturally aligned
+    pub padding: u32,
+    /// Starting physical address.
+    pub phys_start: u64,
+    /// Starting virtual address.
+    pub virt_start: u64,
+    /// Number of 4 KiB pages contained in this range.
+    pub page_count: u64,
+    /// The capability attributes of this memory range.
+    pub att: MemoryAttribute,
+}
+
+bitflags! {
+    /// Flags describing the capabilities of a memory range.
+    pub struct MemoryAttribute: u64 {
+        /// Supports marking as uncacheable.
+        const UNCACHEABLE = 0x1;
+        /// Supports write-combining.
+        const WRITE_COMBINE = 0x2;
+        /// Supports write-through.
+        const WRITE_THROUGH = 0x4;
+        /// Support write-back.
+        const WRITE_BACK = 0x8;
+        /// Supports marking as uncacheable, exported and
+        /// supports the "fetch and add" semaphore mechanism.
+        const UNCACHABLE_EXPORTED = 0x10;
+        /// Supports write-protection.
+        const WRITE_PROTECT = 0x1000;
+        /// Supports read-protection.
+        const READ_PROTECT = 0x2000;
+        /// Supports disabling code execution.
+        const EXECUTE_PROTECT = 0x4000;
+        /// Persistent memory.
+        const NON_VOLATILE = 0x8000;
+        /// This memory region is more reliable than other memory.
+        const MORE_RELIABLE = 0x10000;
+        /// This memory range can be set as read-only.
+        const READ_ONLY = 0x20000;
+        /// This memory range is for special purpose cases.
+        const SPECIAL_PURPOSE = 0x40000;
+        /// This memory must be mapped by the OS when a runtime service is called.
+        const RUNTIME = 0x8000_0000_0000_0000;
+    }
+}
+
+/// Convert u64 to MemoryAttribute.
+impl From<u64> for MemoryAttribute {
+    fn from(mode: u64) -> MemoryAttribute {
+        MemoryAttribute::from_bits_truncate(mode)
+    }
+}
+
+/// Convert MemoryAttribute to u64.
+impl From<MemoryAttribute> for u64 {
+    fn from(mode: MemoryAttribute) -> u64 {
+        mode.bits()
+    }
 }
