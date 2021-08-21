@@ -86,8 +86,14 @@ impl MemoryAffinity {
         self.base_address + self.length
     }
 
+    /// Check if the region is nvm or not.
     pub fn is_non_volatile(&self) -> bool {
         self.non_volatile
+    }
+
+    /// Check if the region is reserved for hotplugged memory.
+    pub fn is_hotplug_region(&self) -> bool {
+        self.enabled && self.hotplug_capable
     }
 
     /// Splits a provided memory range into three sub-ranges (a, b, c).
