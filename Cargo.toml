@@ -24,4 +24,4 @@ libacpica = "0.0.8"
 
 [target.'cfg(not(target_os = "none"))'.dependencies]
 env_logger = "0.9"
-procfs = "0.10"
+procfs = "0.11"
