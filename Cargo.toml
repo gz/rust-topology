@@ -1,6 +1,6 @@
 [package]
 name = "atopology"
-version = "0.0.30"
+version = "0.0.31"
 authors = ["Gerd Zellweger <mail@gerdzellweger.com>"]
 edition = "2018"
 homepage = "https://github.com/gz/rust-topology"
@@ -24,4 +24,4 @@ libacpica = "0.0.8"
 
 [target.'cfg(not(target_os = "none"))'.dependencies]
 env_logger = "0.9"
-procfs = "0.12"
+procfs = { version = "0.12", default-features = false }
