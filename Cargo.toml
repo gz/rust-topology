@@ -1,6 +1,6 @@
 [package]
 name = "atopology"
-version = "0.0.27"
+version = "0.0.29"
 authors = ["Gerd Zellweger <mail@gerdzellweger.com>"]
 edition = "2018"
 homepage = "https://github.com/gz/rust-topology"
@@ -12,10 +12,10 @@ keywords = ["os", "hwloc", "hwinfo", "topology", "x86-64"]
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-x86 = "0.48"
+x86 = "0.50"
 log = "0.4"
 lazy_static = { version = "1.4", features = ["spin_no_std"] }
-cstr_core = { version = "0.2.3", default-features = false }
+cstr_core = { version = "0.2", default-features = false }
 bitflags = "1.2.1"
 static_assertions = "1.1.0"
 
