@@ -475,6 +475,8 @@ lazy_static! {
                 enabled: true
             };
 
+            log::warn!("res={:?}", res);
+
             let t = Thread {
                 id: res["processor"].parse::<usize>().unwrap(),
                 node_id: None, // TODO: complete me
