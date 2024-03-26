@@ -476,12 +476,16 @@ lazy_static! {
             };
 
             log::warn!("res={:?}", res);
+            let core_id = match res.get("core id") {
+                Some(id) => id.parse::<usize>().unwrap(),
+                None => res["processor"].parse::<usize>().unwrap(),
+            };
 
             let t = Thread {
                 id: res["processor"].parse::<usize>().unwrap(),
                 node_id: None, // TODO: complete me
                 package_id: 0, // TODO: complete me
-                core_id: res["core id"].parse::<usize>().unwrap(),
+                core_id: core_id,
                 thread_id: 0, // TODO: complete me
                 apic: ApicThreadInfo::Apic(la),
             };
