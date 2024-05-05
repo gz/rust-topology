@@ -475,7 +475,6 @@ lazy_static! {
                 enabled: true
             };
 
-            log::warn!("res={:?}", res);
             let core_id = match res.get("core id") {
                 Some(id) => id.parse::<usize>().unwrap(),
                 None => res["processor"].parse::<usize>().unwrap(),
